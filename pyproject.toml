@@ -16,6 +16,7 @@ dependencies = [
     "craft-store>=3.3.0",
     "cryptography",
     "gnupg",
+    "jinja2>=2.6.0",
     "jsonschema==2.6.0",
     "launchpadlib",
     "lazr.restfulclient",

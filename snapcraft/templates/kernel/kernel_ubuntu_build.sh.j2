@@ -1,0 +1,122 @@
+# Ubuntu kernel snapcraft build script
+# Rendered by snapcraft ubuntu-kernel plugin.
+# ----
+# Build on:  {{ craft_arch_build_on }}
+# Build for: {{ craft_arch_build_for }}
+# Snapcraft version: {{ snap_version }}
+# Snap data: {{ snap_data_path }}
+# Snap context: {{ snap_context }}
+# ----
+{% include 'kernel_macros.sh.j2' %}
+env
+
+mkdir -pv {{ craft_part_build_dir }}/kernel
+# Get source deb packages into build arena
+{% if ubuntu_kernel_use_binary_package %}
+rsync -aH {{ craft_part_src_dir }}/*.deb {{ craft_part_build_dir }}/kernel
+{% else %}
+# --- BEGIN kernel source build ---
+{#
+This template is included by the build commands template when building from
+source. It builds the Ubuntu kernel debian packages from source rather than
+pulling prebuilt binary packages from PPA. The built packages are then used
+to build the snap kernel package.
+#}
+rsync -aH {{ craft_part_src_dir }}/ {{ craft_part_build_dir }}/kernel-src
+cd {{ craft_part_build_dir }}/kernel-src
+
+source debian/debian.env
+
+{% if is_cross_compiling %}
+    export "$(dpkg-architecture -a{{ target_arch }})"
+{% endif %}
+
+{% set ubuntu_kernel_tools = [] %}
+{% if config.overrides and config.overrides.tools_to_build %}
+    {% set ubuntu_kernel_tools = config.overrides.tools_to_build %}
+{% endif %}
+{% if ubuntu_kernel_tools|length > 0 %}
+    echo "Updating kernel tools selection"
+    sed -i 's/^\\s*do_tools_\\(.*\\)\\s*=.*/do_tools_\\1 = false/g' \
+        debian.master/rules.d/{{ target_arch }}.mk
+    {% for tool in ubuntu_kernel_tools %}
+        sed -i 's/^\s*do_tools_{{ tool }}\s*=.*/do_tools_{{ tool }} = true/g' \
+            debian.master/rules.d/{{ target_arch }}.mk
+    {% endfor %}
+{% endif %}
+
+{% set has_ubuntu_kernel_image_target = config.image_target is not none %}
+{% if has_ubuntu_kernel_image_target %}
+    echo "Updating build target image"
+    sed -i \
+        's/^\s*build_image.*/build_image = {{ config.image_target }}/g' \
+        debian.master/rules.d/{{ target_arch }}.mk
+    sed -i \
+        's|^\s*kernel_file.*|kernel_file = arch/{{ target_arch }}/boot/{{ config.image_target }}|g' \
+        debian.master/rules.d/{{ target_arch }}.mk
+{% endif %}
+
+{% set has_ubuntu_kernel_config_fragments = config.overrides.override_file or config.overrides.override_options %}
+{% if has_ubuntu_kernel_config_fragments %}
+    {# Create a config fragment file to update Ubuntu kernel annotations #}
+    {{ merge_kernel_config('/dev/null', craft_project_dir + '/custom_config_fragment', config.overrides.override_file, config.overrides.override_options|serialize_kernel_config) }}
+    ./debian/scripts/misc/annotations \
+       --arch {{ target_arch }} \
+       --flavour {{ ubuntu_kernel_flavor }} \
+       --update {{ craft_project_dir }}/custom_config_fragment
+{% endif %}
+{# TODO: dkms #}
+fakeroot debian/rules clean
+# This fails due to a change in the config, which is expected
+fakeroot debian/rules updateconfigs || true
+fakeroot debian/rules printenv
+
+fakeroot debian/rules build-{{ ubuntu_kernel_flavor }}
+fakeroot debian/rules binary-{{ ubuntu_kernel_flavor }}
+fakeroot debian/rules binary-headers
+
+cd {{ craft_part_build_dir }}
+# --- END kernel source build ---
+
+mv -v {{ craft_part_build_dir }}/*.deb {{ craft_part_build_dir}}/kernel
+{% endif %}
+
+
+cd {{ craft_part_build_dir }}/kernel
+
+{% if ubuntu_kernel_use_binary_package %}
+    dpkg-deb -R linux-image-*-{{ ubuntu_kernel_flavor }}_*.deb unpacked-linux-image
+{% else %}
+    # Source builds are not signed yet
+    dpkg-deb -R linux-image-unsigned-*-{{ ubuntu_kernel_flavor }}_*.deb unpacked-linux-image
+{% endif %}
+
+dpkg-deb -x linux-modules-*-{{ ubuntu_kernel_flavor }}_*.deb unpacked-linux-modules
+
+if test -f linux-modules-extra-*-{{ ubuntu_kernel_flavor }}_*.deb; then
+    dpkg-deb -x linux-modules-extra-*-{{ ubuntu_kernel_flavor }}_*.deb unpacked-linux-modules
+fi
+
+KERNEL_ABI="$(dpkg-deb -f linux-modules-*-{{ ubuntu_kernel_flavor }}_*.deb Version | perl -ne '/(\d+\.\d+\.\d+).(\d+).*/ && print "$1-$2\n"')"
+
+# Unpack the linux deb binaries to snap package structure
+mv -v unpacked-linux-image/* {{ craft_part_install_dir }}
+mkdir -pv {{ craft_part_install_dir }}/lib
+mv -v unpacked-linux-modules/lib/modules {{ craft_part_install_dir }}/lib/
+mv -v unpacked-linux-modules/boot/* {{ craft_part_install_dir }}/boot/
+
+depmod -b {{ craft_part_install_dir }} "${KERNEL_ABI}"-{{ ubuntu_kernel_flavor }}
+
+# Manipulate stock kernel layout to the snapcraft package layout.
+mv -v {{ craft_part_install_dir }}/boot/* {{ craft_part_install_dir }}/
+ln -fv {{ craft_part_install_dir }}/vmlinuz-"${KERNEL_ABI}"-{{ ubuntu_kernel_flavor }} {{ craft_part_install_dir }}/kernel.img
+mv -v {{ craft_part_install_dir }}/lib/modules {{ craft_part_install_dir }}/
+
+# Device tree
+DTBS=unpacked-linux-firmware/lib/firmware/"${KERNEL_ABI}"/device-tree
+[ -d "${DTBS}" ] && mv -v "${DTBS}" {{ craft_part_install_dir }}/dtbs
+
+# Firmware
+FIRMWARE=unpacked-linux-firmware/lib/firmware/"${KERNEL_ABI}"
+[ -d "${FIRMWARE}" ] && mv -v "${FIRMWARE}" {{ craft_part_install_dir }}/firmware
+rm -rf {{ craft_part_install_dir }}/boot

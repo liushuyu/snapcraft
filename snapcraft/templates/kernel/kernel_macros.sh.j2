@@ -1,0 +1,63 @@
+{% macro merge_kernel_config(source, target, override_file, override_value) %}
+{% if source != target %}
+{% set target_filename = target|escape_shell_word %}
+cp -v {{ source|escape_shell_word }} {{ target_filename }}
+{% endif %}
+{% if override_file %}
+echo '# -- From {{ override_file }} --' >> {{ target_filename }}
+cat {{ override_file|escape_shell_word }} >> {{ target_filename }}
+{%- endif %}
+{% if override_value %}
+echo '# -- Overridden value --' >> {{ target_filename }}
+cat << 'EOF' >> {{ target_filename }}
+{{ override_value }}
+EOF
+{%- endif %}
+{% endmacro %}
+
+{% macro build_external_module(linux_tree_path, module_path, module_name, dest_path) %}
+{% set target = "modules" %}
+{% if module_name == "$template" %}
+{% set target = "" %}
+{% elif module_name %}
+{% set target = module_name + ".ko" %}
+{% endif %}
+make -C {{ linux_tree_path|escape_shell_word }} M={{ module_path|escape_shell_word }} {{ target|escape_shell_word if target }}
+{% if dest_path %}
+{% if target %}
+install -Dvm755 "{{ target }}" {{ dest_path|escape_shell_word }}/updates/dkms/{{ target|escape_shell_word }}
+{% else %}
+find {{ module_path|escape_shell_word }} -name "*.ko" -type f -exec install -Dvm755 '{}' {{ dest_path|escape_shell_word }}/updates/dkms/'{}' ';'
+{% endif %}
+{% endif %}
+{% endmacro %}
+
+{% macro generate_dkms_wrapper(module_name, linux_tree_path, module_path, dest_path) %}
+{% set config_filename = module_path + "/dkms.conf" %}
+module_build_{{module_name}}() {
+    local _make_args
+    local _count
+    if ! test -f "$config_filename"; then
+        {{ build_external_module(linux_tree_path, module_path, "", dest_path) }}
+        return
+    fi
+    _make_args={{ build_external_module(linux_tree_path, module_path, "$template", dest_path) | escape_shell_word }}
+    declare -a MAKE
+    source {{ config_filename|escape_shell_word }}
+    _count="${{ '{#' }}BUILT_MODULE_NAME[@]}"
+    if [ "$_count" -eq 0 ]; then
+        echo "Error: No modules were built. Check the build output for details." >&2
+        exit 1
+    fi
+
+    for ((i=0; i<$_count; i++)); do
+        _module_name="${BUILT_MODULE_NAME[i]}"
+        if [ -z "${MAKE[i]}" ]; then
+            eval "${_make_args}" "'${_module_name}.ko'"
+        else
+            eval "${MAKE[i]}"
+        fi
+        install -Dvm755 "${_module_name}.ko" {{ dest_path|escape_shell_word }}/"${DEST_MODULE_LOCATION[i]:-/updates/dkms}"/"${_module_name}.ko"
+    done
+}
+{% endmacro %}

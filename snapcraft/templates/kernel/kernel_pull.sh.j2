@@ -1,0 +1,23 @@
+{% if ubuntu_kernel_use_binary_package %}
+    {% if is_cross_compiling and target_arch != 'amd64' %}
+echo \
+    "deb [arch={{ target_arch }}] http://ports.ubuntu.com/ubuntu-ports \
+{{ ubuntu_kernel_release_name }} main restricted universe multiverse" >> /etc/apt/sources.list.d/{{ ubuntu_kernel_release_name }}_ports.list
+    {% endif %}
+apt-get update
+
+KERNEL_ABI="$(apt-cache show linux-image-generic:{{ target_arch }}/{{ ubuntu_kernel_release_name }} | perl -ne '/Version:\s+(\d+\.\d+\.\d+).(\d+).*/ && print "$1-$2\n"')"
+echo "Kernel ABI: ${KERNEL_ABI}"
+
+apt-get download linux-image-"${KERNEL_ABI}"-{{ ubuntu_kernel_flavor }}:{{ target_arch }} \
+    linux-modules-"${KERNEL_ABI}"-{{ ubuntu_kernel_flavor }}:{{ target_arch }} \
+    linux-modules-extra-"${KERNEL_ABI}"-{{ ubuntu_kernel_flavor }}:{{ target_arch }} \
+    linux-firmware
+
+    {% if config.extra_modules %}
+apt-get install -y --no-install-recommends \
+    linux-tools-"${KERNEL_ABI}"-{{ ubuntu_kernel_flavor }}:{{ target_arch }} \
+    linux-headers-"${KERNEL_ABI}"-{{ ubuntu_kernel_flavor }}:{{ target_arch }}
+    {% endif %}
+
+{% endif %}

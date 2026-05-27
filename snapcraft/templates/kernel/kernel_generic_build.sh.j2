@@ -1,0 +1,244 @@
+# required_boot are Kconfigs required for booting Ubuntu Core
+required_boot="SQUASHFS"
+
+# required_generic are Kconfigs required in general
+required_generic="
+DEVTMPFS
+DEVTMPFS_MOUNT
+TMPFS_POSIX_ACL
+IPV6
+SYSVIPC
+SYSVIPC_SYSCTL
+VFAT_FS
+NLS_CODEPAGE_437
+NLS_ISO8859_1"
+
+# required_security are Kconfigs for sandboxing support
+required_security="
+SECURITY
+SECURITY_APPARMOR
+SYN_COOKIES
+STRICT_DEVMEM
+DEFAULT_SECURITY_APPARMOR
+SECCOMP
+SECCOMP_FILTER"
+
+# required_snappy are Kconfigs for snap support
+required_snappy="
+RD_LZMA
+KEYS
+ENCRYPTED_KEYS
+SQUASHFS
+SQUASHFS_XATTR
+SQUASHFS_XZ
+SQUASHFS_LZO"
+
+# required_systemd are Kconfigs for systemd
+required_systemd="
+DEVTMPFS
+CGROUPS
+INOTIFY_USER
+SIGNALFD
+TIMERFD
+EPOLL
+NET
+SYSFS
+PROC_FS
+FHANDLE
+BLK_DEV_BSG
+NET_NS
+IPV6
+AUTOFS4_FS
+TMPFS_POSIX_ACL
+TMPFS_XATTR
+SECCOMP"
+
+readonly required_generic  \
+        required_security \
+        required_snappy   \
+        required_systemd  \
+        required_boot
+{% from 'kernel_macros.sh.j2' import merge_kernel_config with context %}
+# check_config checks if Ubuntu Core and snap specific options are set
+check_config() {
+  echo "${required_boot}"     \
+       "${required_generic}"  \
+       "${required_security}" \
+       "${required_snappy}"   \
+       "${required_systemd}"  | while read -r config; do
+    if ! grep "^CONFIG_${config}=" "${CRAFT_PART_BUILD}/.config"; then
+      printf '*** WARNING ***\n'
+      printf 'Your kernel config is missing:\n'
+      printf '%s\n' "${config}"
+      printf 'Which is recommended or required by Ubuntu Core!\n'
+      printf 'Continuing, but you should check your .config\n'
+    fi
+  done
+}
+
+# build_kernel performs the build steps to create a kernel and any modules or dtbs
+build_kernel() {
+  local build_target={{ kernel_image_targets|to_bash_array }}
+  echo "Building kernel..."
+  make -j "${CRAFT_PARALLEL_BUILD_COUNT}" \
+         -C "${KERNEL_SRC}"                 \
+          O="${CRAFT_PART_BUILD}"           \
+          "${build_target[@]}"
+
+  echo "Kernel build finished!"
+  KERNEL_IMAGE="${build_target[0]}"
+}
+
+# build_tool builds a specified tool
+# $1 is the tool name as preferred by the plugin; some cleanup may be required
+build_tool() {
+  local _tool _make_after _make_after_default _make_install_after _wd
+  _tool="${1}"
+
+  # Some tools are in odd paths. perf is an exception
+  _make_after_default=(-j "${CRAFT_PARALLEL_BUILD_COUNT}")
+  _make_after=("${_make_after_default[@]}" "O=${CRAFT_PART_BUILD}/tools/${_tool}")
+  _make_install_after=(-C "${KERNEL_SRC}/tools/${_tool}" install)
+  case $_tool in
+    bpf)      _tool=bpf/bpftool     _wd="${KERNEL_SRC}/tools/bpf" _make_after+=(-C bpftool all) _make_install_after=(-C bpftool install) ;;
+    cpupower) _tool=power/cpupower  _make_after+=(STATIC=true CPUFREQ_BENCH=false);;
+    perf)                           _make_after+=(NO_LIBPERL=1 WERROR=0);;
+    rtla)     _tool=tracing/rtla    _make_after+=(static HOSTLD=ld);;
+    acpidbg)  _tool=power/acpi      _make_after+=(CFLAGS="-g -O2 -static -I${KERNEL_SRC}/include" acpidbg);;
+    x86)      _tool=power/x86/x86_energy_perf_policy  ;;
+    hyperv)   _tool=hv              _make_after+=(CFLAGS="-I${KERNEL_SRC}/include" hv_fcopy_uio_daemon);;
+    usbip)    _tool=usb/usbip       _wd="${KERNEL_SRC}/tools/usb/usbip" ;;
+  esac
+
+  echo "Building tool" "${_tool#*/}"
+
+  mkdir -p "${CRAFT_PART_BUILD}/tools/${_tool}"
+
+  if [ "${_tool}" = "usbip" ]; then
+    {# USBIP uses autotools #}
+    cd "${_wd}"
+    bash -e autogen.sh
+    cd "${CRAFT_PART_BUILD}/tools/${_tool}"
+    bash -e "${_wd}/configure" --host="${HOST}" --prefix="${CRAFT_PART_BUILD}/tools/${_tool}" CFLAGS="-g -O2 -static"
+    _wd="${CRAFT_PART_BUILD}/tools/${_tool}"
+  fi
+
+  if [ -n "${_wd}" ]; then
+    pushd "${_wd}"
+  fi
+  make -j "${CRAFT_PARALLEL_BUILD_COUNT}" "${_make_after[@]}"
+  make -j "${CRAFT_PARALLEL_BUILD_COUNT}" "${_make_install_after[@]}"
+  if [ -n "${_wd}" ]; then
+    popd
+  fi
+
+  # Install at least the final built binary - some tools' install targets don't do this
+  install -Dm0755 "${CRAFT_PART_BUILD}/tools/${_tool}/${_tool#*/}" "${CRAFT_PART_INSTALL}/bin/${_tool#*/}"
+}
+
+# pack_kernel moves the built artifacts into the correct place in the final snap
+# hierarchy and cleans up some dangling files
+# $1 is the version of the kernel as specified in the kernel binary
+pack_kernel() {
+  local _kver
+  _kver="${1}"
+
+  # This information gets deleted by some modules, like zfs. We still need it
+  # for e.g. initrd builds.
+  echo "Copying some module information..."
+  cp -f "${CRAFT_PART_BUILD}/modules.order"   \
+        "${CRAFT_PART_BUILD}/modules.builtin" \
+        "${CRAFT_PART_INSTALL}/lib/modules/${_kver}"
+
+  # Install kernel artifacts
+  echo "Copying kernel image..."
+  cp -f "${CRAFT_PART_BUILD}/arch/${ARCH}/boot/${KERNEL_IMAGE}" \
+        "${CRAFT_PART_INSTALL}/kernel.img-${_kver}"
+
+  echo "Copying System map..."
+  cp -f "${CRAFT_PART_BUILD}/System.map" \
+        "${CRAFT_PART_INSTALL}/System.map-${_kver}"
+
+  echo "Copying kernel config..."
+  cp -f "${CRAFT_PART_BUILD}/.config" \
+        "${CRAFT_PART_INSTALL}/config-${_kver}"
+
+  ln -f "${CRAFT_PART_INSTALL}/kernel.img-${_kver}" \
+    "${CRAFT_PART_INSTALL}/kernel.img"
+
+  # Remove symlinks lib/modules/${_kver}/{build,source}
+  # It's possible that these are not even installed, however
+  unlink "${CRAFT_PART_INSTALL}/lib/modules/${_kver}/build"  || true
+  unlink "${CRAFT_PART_INSTALL}/lib/modules/${_kver}/source" || true
+}
+
+# install_kernel installs the modules and any dtbs if required to the proper location
+install_kernel() {
+  # Install the kernel modules, stripped
+  echo "Installing kernel modules..."
+  make -j "${CRAFT_PARALLEL_BUILD_COUNT}"        \
+       -C "${KERNEL_SRC}"                        \
+        O="${CRAFT_PART_BUILD}"                  \
+        INSTALL_MOD_PATH="${CRAFT_PART_INSTALL}" \
+        INSTALL_MOD_STRIP=1                      \
+        modules_install
+
+  # Install device trees, if required
+  if [ "${CRAFT_ARCH_BUILD_FOR}" != "amd64" ]; then
+    echo "Installing device trees..."
+    make -j "${CRAFT_PARALLEL_BUILD_COUNT}"              \
+         -C "${KERNEL_SRC}"                              \
+          O="${CRAFT_PART_BUILD}"                        \
+          INSTALL_DTBS_PATH="${CRAFT_PART_INSTALL}/dtbs" \
+          dtbs_install
+  fi
+}
+
+# create_snap_structure migrates the modules and firmware from their canonical
+# paths to the one expected by snapd
+create_snap_structure() {
+  echo "Finalizing install directory..."
+  # Usually under $INSTALL_MOD_PATH/lib/ but snapd expects modules/
+  mv -f "${CRAFT_PART_INSTALL}/lib/modules" "${CRAFT_PART_INSTALL}"
+
+  # Create symlinks for canonical paths to modules
+  ln -sf ../modules  "${CRAFT_PART_INSTALL}/lib/modules"
+
+  # If there is firmware dir, move it to snap root as snapd expects firmware/
+  # The firmware may or may not be handled by the part using this plugin, so
+  # this behavior is conditional. Parts handling firmware should create their
+  # own lib/firmware -> firmware link
+  if [ -d "${CRAFT_PART_INSTALL}/lib/firmware" ]; then
+    mv -f "${CRAFT_PART_INSTALL}/lib/firmware" "${CRAFT_PART_INSTALL}"
+    ln -sf ../firmware "${CRAFT_PART_INSTALL}/lib/firmware"
+  fi
+}
+
+if [ -d "${CRAFT_PART_SRC}/kernel" ]; then
+  # Or the  is building the kernel snap in-tree with the kernel source
+  KERNEL_SRC="${CRAFT_PART_SRC}"
+  else echo "Source missing from kernel part! Please specify a source" && exit 1
+fi
+
+echo "Build environment variables:"
+printenv
+
+{% set defconfig_name = 'defconfig' %}
+{% if config.config and config.config.defconfig %}
+{% set defconfig_name = config.config.defconfig %}
+{% endif %}
+make -j "${CRAFT_PARALLEL_BUILD_COUNT}" -C "${KERNEL_SRC}" O="${CRAFT_PART_BUILD}" ARCH="${ARCH}" {{ defconfig_name|escape_shell_word }}
+
+{% if config.config %}
+{{ merge_kernel_config(craft_part_build_dir + '/.config', craft_part_build_dir + '/.config', config.config.override_file, config.config.override_options|serialize_kernel_config) }}
+{% endif %}
+# Double check the config against Ubuntu Core and snapd options
+echo "Checking config for expected options..."
+check_config
+
+build_kernel
+install_kernel
+{# build_tool "perf" #}
+eval "$(echo 'KERNEL_ABI=UTS_RELEASE' | gcc -E -include "${CRAFT_PART_BUILD}/include/generated/utsrelease.h" -P -)"
+pack_kernel "${KERNEL_ABI}"
+create_snap_structure

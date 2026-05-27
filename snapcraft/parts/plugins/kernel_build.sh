@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 # parse_args parses arguments passed to this script
 parse_args() {
@@ -140,6 +140,7 @@ release_info() {
 # build_tool builds a specified tool
 # $1 is the tool name as preferred by the plugin; some cleanup may be required
 build_tool() {
+  local _tool
   _tool="${1}"
 
   # Some tools are in odd paths. perf is an exception
