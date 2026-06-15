@@ -1,6 +1,6 @@
 {% macro merge_kernel_config(source, target, override_file, override_value) %}
-{% if source != target %}
 {% set target_filename = target|escape_shell_word %}
+{% if source != target %}
 cp -v {{ source|escape_shell_word }} {{ target_filename }}
 {% endif %}
 {% if override_file %}
@@ -41,23 +41,10 @@ module_build_{{module_name}}() {
         {{ build_external_module(linux_tree_path, module_path, "", dest_path) }}
         return
     fi
-    _make_args={{ build_external_module(linux_tree_path, module_path, "$template", dest_path) | escape_shell_word }}
-    declare -a MAKE
-    source {{ config_filename|escape_shell_word }}
-    _count="${{ '{#' }}BUILT_MODULE_NAME[@]}"
-    if [ "$_count" -eq 0 ]; then
-        echo "Error: No modules were built. Check the build output for details." >&2
-        exit 1
-    fi
-
-    for ((i=0; i<$_count; i++)); do
-        _module_name="${BUILT_MODULE_NAME[i]}"
-        if [ -z "${MAKE[i]}" ]; then
-            eval "${_make_args}" "'${_module_name}.ko'"
-        else
-            eval "${MAKE[i]}"
-        fi
-        install -Dvm755 "${_module_name}.ko" {{ dest_path|escape_shell_word }}/"${DEST_MODULE_LOCATION[i]:-/updates/dkms}"/"${_module_name}.ko"
-    done
+    local _module_dirname _module_dir_parent _module_path
+    _module_path={{ module_path|escape_shell_word }}
+    _module_dirname="$(basename "${_module_path}")"
+    _module_dir_parent="$(dirname "${_module_path}")"
+    dkms install -m "${_module_dirname}/0" --no-depmod -k "${KERNEL_ABI}" --kernelsourcedir={{ linux_tree_path|escape_shell_word }} --sourcetree "${_module_dir_parent}" --dkmstree "${CRAFT_PART_BUILD}/dkms/${_module_dirname}" --verbose
 }
 {% endmacro %}

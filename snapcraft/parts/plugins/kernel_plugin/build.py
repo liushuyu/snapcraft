@@ -28,10 +28,10 @@ def escape_shell_word(word: str) -> str:
     return shlex.quote(word)
 
 
-def to_bash_array(arr: list[str] | dict[str, str]) -> str:
+def to_bash_array(arr: list[str] | set[str] | dict[str, str]) -> str:
     """Escape a list of strings into a bash array literal."""
     # Jinja2 does not support type checking, so we need to validate the input at runtime
-    if isinstance(arr, list):
+    if isinstance(arr, (list, set)):
         escaped_elements = [escape_shell_word(elem) for elem in arr]
         return f"({' '.join(escaped_elements)})"
     if isinstance(arr, dict):
@@ -39,7 +39,7 @@ def to_bash_array(arr: list[str] | dict[str, str]) -> str:
             f"[{escape_shell_word(k)}]={escape_shell_word(v)}" for k, v in arr.items()
         ]
         return f"({' '.join(escaped_items)})"
-    raise ValueError("Input must be a list of strings or a dictionary")
+    raise ValueError(f"Input must be a list of strings or a dictionary, not {type(arr)}")
 
 
 def normalize_kernel_config(config: ConfigOptions) -> list[str]:

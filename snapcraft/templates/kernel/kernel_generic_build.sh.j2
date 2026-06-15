@@ -94,46 +94,58 @@ build_kernel() {
 build_tool() {
   local _tool _make_after _make_after_default _make_install_after _wd
   _tool="${1}"
+  _wd=''
 
   # Some tools are in odd paths. perf is an exception
+  _builddir="${CRAFT_PART_BUILD}/tools/${_tool}"
   _make_after_default=(-j "${CRAFT_PARALLEL_BUILD_COUNT}")
-  _make_after=("${_make_after_default[@]}" "O=${CRAFT_PART_BUILD}/tools/${_tool}")
-  _make_install_after=(-C "${KERNEL_SRC}/tools/${_tool}" install)
+  _make_after=("${_make_after_default[@]}" "O=${_builddir}")
+  _make_install_after=()
   case $_tool in
     bpf)      _tool=bpf/bpftool     _wd="${KERNEL_SRC}/tools/bpf" _make_after+=(-C bpftool all) _make_install_after=(-C bpftool install) ;;
     cpupower) _tool=power/cpupower  _make_after+=(STATIC=true CPUFREQ_BENCH=false);;
-    perf)                           _make_after+=(NO_LIBPERL=1 WERROR=0);;
-    rtla)     _tool=tracing/rtla    _make_after+=(static HOSTLD=ld);;
-    acpidbg)  _tool=power/acpi      _make_after+=(CFLAGS="-g -O2 -static -I${KERNEL_SRC}/include" acpidbg);;
+    perf)     _tool=perf            _make_after+=(NO_LIBPERL=1 WERROR=0);;
+    rtla)     _tool=tracing/rtla    _make_after+=(HOSTLD=ld LDFLAGS="-L${_builddir}/../cpupower");;
+    acpidbg)  _tool=power/acpi      _make_after+=(CFLAGS="-g -O2 -static -I${KERNEL_SRC}/include" acpidbg) _make_install_after=(acpidbg_install);;
     x86)      _tool=power/x86/x86_energy_perf_policy  ;;
-    hyperv)   _tool=hv              _make_after+=(CFLAGS="-I${KERNEL_SRC}/include" hv_fcopy_uio_daemon);;
+    hyperv)   _tool=hv              _make_after+=(all);;
     usbip)    _tool=usb/usbip       _wd="${KERNEL_SRC}/tools/usb/usbip" ;;
   esac
 
+  if [ -z "${_wd}" ]; then
+    _wd="${KERNEL_SRC}/tools/${_tool}"
+  fi
+
+  if [ "${{ "{#" }}_make_install_after[@]}" -eq 0 ]; then
+    _make_install_after=(-C "${KERNEL_SRC}/tools/${_tool}" install)
+  fi
+  _make_install_after+=("O=${_builddir}" "DESTDIR=${CRAFT_PART_INSTALL}" "PREFIX=/")
+
   echo "Building tool" "${_tool#*/}"
 
-  mkdir -p "${CRAFT_PART_BUILD}/tools/${_tool}"
+  rm -rf "${_builddir}"
+  mkdir -p "${_builddir}"
 
-  if [ "${_tool}" = "usbip" ]; then
+  if [ "${_tool}" = "usb/usbip" ]; then
     {# USBIP uses autotools #}
     cd "${_wd}"
     bash -e autogen.sh
     cd "${CRAFT_PART_BUILD}/tools/${_tool}"
-    bash -e "${_wd}/configure" --host="${HOST}" --prefix="${CRAFT_PART_BUILD}/tools/${_tool}" CFLAGS="-g -O2 -static"
+    bash "${_wd}/configure" --host="${DEB_HOST_GNU_TYPE}" --prefix="/" CFLAGS="-g -O2"
+    _make_install_after=("DESTDIR=${CRAFT_PART_INSTALL}")
     _wd="${CRAFT_PART_BUILD}/tools/${_tool}"
   fi
 
-  if [ -n "${_wd}" ]; then
-    pushd "${_wd}"
+  if [ -z "${_wd}" ]; then
+    _wd="${KERNEL_SRC}/tools/${_tool}"
   fi
+  pushd "${_wd}"
   make -j "${CRAFT_PARALLEL_BUILD_COUNT}" "${_make_after[@]}"
   make -j "${CRAFT_PARALLEL_BUILD_COUNT}" "${_make_install_after[@]}"
-  if [ -n "${_wd}" ]; then
-    popd
-  fi
+  popd
 
   # Install at least the final built binary - some tools' install targets don't do this
-  install -Dm0755 "${CRAFT_PART_BUILD}/tools/${_tool}/${_tool#*/}" "${CRAFT_PART_INSTALL}/bin/${_tool#*/}"
+  install -Dm0755 "${CRAFT_PART_BUILD}/tools/${_tool}/${_tool#*/}" "${CRAFT_PART_INSTALL}/bin/${_tool#*/}" || true
 }
 
 # pack_kernel moves the built artifacts into the correct place in the final snap
@@ -220,6 +232,8 @@ if [ -d "${CRAFT_PART_SRC}/kernel" ]; then
   else echo "Source missing from kernel part! Please specify a source" && exit 1
 fi
 
+export $(dpkg-architecture -a'{{ target_arch }}')
+
 echo "Build environment variables:"
 printenv
 
@@ -238,7 +252,18 @@ check_config
 
 build_kernel
 install_kernel
-{# build_tool "perf" #}
+TOOLS_TO_BUILD={{ config.config.tools_to_build|to_bash_array }}
+for t in "${TOOLS_TO_BUILD[@]}"; do
+  build_tool "${t}"
+done
+
+{% for dkms_module, _ in config.config.extra_modules.items() %}
+{{ generate_dkms_wrapper(dkms_module, craft_part_src_dir + '/kernel', craft_part_src_dir + '/dkms/' + dkms_module, CRAFT_PART_INSTALL) }}
+( # Build the module in a subshell to avoid polluting the environment
+    "module_build_{{dkms_module}}"
+)
+{% endfor %}
+
 eval "$(echo 'KERNEL_ABI=UTS_RELEASE' | gcc -E -include "${CRAFT_PART_BUILD}/include/generated/utsrelease.h" -P -)"
 pack_kernel "${KERNEL_ABI}"
 create_snap_structure

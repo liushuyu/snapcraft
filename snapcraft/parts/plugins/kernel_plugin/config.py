@@ -1,7 +1,6 @@
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from craft_parts.plugins import PluginProperties
-from craft_parts.sources import SourceModel
 from pydantic import Discriminator, Field, StringConstraints
 from pydantic.dataclasses import dataclass
 
@@ -30,12 +29,14 @@ class KernelConfigBuildKconfig:
     defconfig: NonEmptyString | None = None
     override_file: NonEmptyString | None = None
     override_options: ConfigOptions = Field(default_factory=dict)
-    tools_to_build: set[KernelTools] = Field(default_factory=VALID_KERNEL_TOOLS.copy)
+    tools_to_build: set[Annotated[str, KernelTools]] = Field(
+        default_factory=VALID_KERNEL_TOOLS.copy
+    )
 
 
 @dataclass(slots=True, config=PluginProperties.model_config)
 class KernelConfigBase:
-    extra_modules: dict[NonEmptyString, SourceModel | None] = Field(
+    extra_modules: dict[NonEmptyString, dict[str, Any] | None] = Field(
         default_factory=dict
     )
 

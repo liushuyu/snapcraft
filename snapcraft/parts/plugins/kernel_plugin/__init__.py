@@ -1,8 +1,9 @@
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Literal, cast
+from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 
 from craft_parts import errors, infos, plugins
+from craft_parts.parts import PartSpec
 from craft_parts.sources import SourceModel, get_source_handler
 from pydantic import StringConstraints
 from typing_extensions import override
@@ -44,7 +45,7 @@ KERNEL_TOOLS_BUILD_DEPS = {
         "libcap-dev:target",
         "libiberty-dev:target",
     },
-    "cpupower": {"libpci-dev:target"},
+    "cpupower": {"libpci-dev:target", "gettext"},
     "perf": {
         "libdw-dev:target",
         "libunwind8-dev:target",
@@ -65,6 +66,7 @@ KERNEL_TOOLS_BUILD_DEPS = {
         "libtraceevent-dev:target",
         "libtracefs-dev:target",
         "clang",
+        "python3-docutils",
     },
     "x86": {"libnl-3-dev:target", "libnl-genl-3-dev:target"},
     "acpidbg": set(),
@@ -87,10 +89,11 @@ KERNEL_ARCH_FROM_SNAP_ARCH = {
 
 
 class SubPart:
-    def __init__(self, name: str, source_dir: Path, source: SourceModel) -> None:
+    def __init__(self, name: str, source_dir: Path, source: dict[str, Any]) -> None:
         self.name = name
         self.source_dir = source_dir
-        self.spec = source
+        self.part_src_dir = source_dir
+        self.spec = PartSpec.unmarshal(source)
 
 
 class KernelPluginProperties(plugins.PluginProperties, frozen=True):
@@ -212,7 +215,9 @@ class KernelPlugin(plugins.Plugin):
                     "Part",
                     SubPart(
                         name=module_name,
-                        source_dir=self._part_info.part_src_dir / module_name,
+                        source_dir=(
+                            self._part_info.part_src_dir / "dkms" / module_name
+                        ),
                         source=module_source,
                     ),
                 ),
