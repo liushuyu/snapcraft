@@ -1,4 +1,6 @@
 import logging
+import os
+import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 
@@ -8,7 +10,14 @@ from craft_parts.sources import SourceModel, get_source_handler
 from pydantic import StringConstraints
 from typing_extensions import override
 
-from .build import escape_shell_word, generate_build_commands, generate_pull_commands
+from craft_archives import repo
+
+from .build import (
+    escape_shell_word,
+    generate_build_commands,
+    generate_pull_commands,
+    UBUNTU_RELEASE_FROM_SNAP_BASE,
+)
 from .config import (
     KernelBuildConfig,
     KernelConfigBuildTypeGeneric,
@@ -54,9 +63,13 @@ KERNEL_TOOLS_BUILD_DEPS = {
         "libnuma-dev:target",
         "liblzma-dev:target",
         "zlib1g-dev:target",
+        "libelf-dev",
         "libelf-dev:target",
-        "pahole:target",
-        "zstd:target",
+        "libbpf-dev:target",
+        "libstd-rust-dev:target",
+        "libzstd-dev",
+        "libzstd-dev:target",
+        "pahole",
     },
     "perf_python": {"python3-dev", "python3-setuptools", "libpython3-dev:target"},
     "perf_jvmti": {"java-common:target", "default-jdk-headless"},
@@ -114,6 +127,45 @@ class KernelPlugin(plugins.Plugin):
         super().__init__(properties=properties, part_info=part_info)
         self.options = cast(KernelPluginProperties, self._options)
 
+    def _setup_cross_build_environment(self) -> None:
+        """Set up the cross-build repository for the target architecture."""
+        target_arch = self._part_info.target_arch
+        if target_arch not in KERNEL_ARCH_FROM_SNAP_ARCH:
+            raise errors.PartsError(
+                "unsupported architecture",
+                f"Kernel build is not supported for architecture: {target_arch}",
+            )
+        series = UBUNTU_RELEASE_FROM_SNAP_BASE.get(self._part_info.base)
+        if not series:
+            raise errors.PartsError(
+                "unsupported base",
+                f"Kernel build is not supported for base: {self._part_info.base}",
+            )
+        if os.environ.get("SNAP_NAME") != "snapcraft":
+            # If not running inside the build container, we need to skip this part
+            return
+
+        subprocess.check_call(["dpkg", "--add-architecture", target_arch])
+
+        repo.install(
+            [
+                {
+                    "url": "https://ports.ubuntu.com/ubuntu-ports/"
+                    if target_arch != "amd64"
+                    else "https://archive.ubuntu.com/ubuntu/",
+                    "suites": [f"{series}", f"{series}-security", f"{series}-updates"],
+                    "components": ["main", "universe"],
+                    "formats": ["deb"],
+                    "architectures": [target_arch],
+                    "type": "apt",
+                    "key-id": "F6ECB3762474EDA9D21B7022871920D1991BC93C",
+                }
+            ],
+            key_assets=Path("/non-existent-path/keys"),
+        )
+
+        subprocess.check_call(["apt-get", "update", "-qq"])
+
     @override
     def get_build_snaps(self) -> set[str]:
         return set()
@@ -135,6 +187,9 @@ class KernelPlugin(plugins.Plugin):
         gcc_arch = target_arch_triplet.replace("_", "-")
         gcc_package = "gcc" if not is_cross_build else f"gcc-{gcc_arch}"
 
+        if is_cross_build:
+            self._setup_cross_build_environment()
+
         base_packages = {
             "bc",
             "binutils",
@@ -150,6 +205,7 @@ class KernelPlugin(plugins.Plugin):
             "kmod",
             "kpartx",
             "openssl",
+            "libssl-dev",
             f"libssl-dev:{target_arch}",
             "lz4",
             "rsync",

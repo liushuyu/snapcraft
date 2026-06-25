@@ -15,7 +15,7 @@ DEFAULT_KERNEL_IMAGE_TARGETS = {
     "s390x": ["bzImage", "modules"],
     "riscv64": ["Image", "modules", "dtbs"],
 }
-INITRD_RELEASE_FROM_SNAP_BASE = {
+UBUNTU_RELEASE_FROM_SNAP_BASE = {
     "core20": "focal",
     "core22": "jammy",
     "core24": "noble",
@@ -73,7 +73,7 @@ def get_default_image_targets_for_arch(arch: str) -> list[str]:
 
 
 def _get_current_base_release(config: KernelBuildConfig, base_name: str) -> str:
-    auto_detected_release = INITRD_RELEASE_FROM_SNAP_BASE.get(base_name)
+    auto_detected_release = UBUNTU_RELEASE_FROM_SNAP_BASE.get(base_name)
     if config.build_type == "generic-tree":
         result = config.ubuntu_release_name or auto_detected_release
         if not result:

@@ -98,14 +98,15 @@ build_tool() {
 
   # Some tools are in odd paths. perf is an exception
   _builddir="${CRAFT_PART_BUILD}/tools/${_tool}"
-  _make_after_default=(-j "${CRAFT_PARALLEL_BUILD_COUNT}")
+  _make_after_default=(-j "${CRAFT_PARALLEL_BUILD_COUNT}" ARCH={{ target_arch|escape_shell_word }} CC="${DEB_HOST_GNU_TYPE}-gcc")
   _make_after=("${_make_after_default[@]}" "O=${_builddir}")
   _make_install_after=()
   case $_tool in
     bpf)      _tool=bpf/bpftool     _wd="${KERNEL_SRC}/tools/bpf" _make_after+=(-C bpftool all) _make_install_after=(-C bpftool install) ;;
     cpupower) _tool=power/cpupower  _make_after+=(STATIC=true CPUFREQ_BENCH=false);;
     perf)     _tool=perf            _make_after+=(NO_LIBPERL=1 WERROR=0);;
-    rtla)     _tool=tracing/rtla    _make_after+=(HOSTLD=ld LDFLAGS="-L${_builddir}/../cpupower");;
+    rtla)     _tool=tracing/rtla    _make_after+=(HOSTLD=ld LDFLAGS="-L${_builddir}/../cpupower" PKG_CONFIG="${DEB_HOST_GNU_TYPE}-pkg-config" LD="${DEB_HOST_GNU_TYPE}-gcc")
+              _make_install_after+=(STRIP="${DEB_HOST_GNU_TYPE}-strip");;
     acpidbg)  _tool=power/acpi      _make_after+=(CFLAGS="-g -O2 -static -I${KERNEL_SRC}/include" acpidbg) _make_install_after=(acpidbg_install);;
     x86)      _tool=power/x86/x86_energy_perf_policy  ;;
     hyperv)   _tool=hv              _make_after+=(all);;
@@ -198,8 +199,7 @@ install_kernel() {
   # Install device trees, if required
   if [ "${CRAFT_ARCH_BUILD_FOR}" != "amd64" ]; then
     echo "Installing device trees..."
-    make -j "${CRAFT_PARALLEL_BUILD_COUNT}"              \
-         -C "${KERNEL_SRC}"                              \
+    make -j1      -C "${KERNEL_SRC}"                     \
           O="${CRAFT_PART_BUILD}"                        \
           INSTALL_DTBS_PATH="${CRAFT_PART_INSTALL}/dtbs" \
           dtbs_install
@@ -257,13 +257,17 @@ for t in "${TOOLS_TO_BUILD[@]}"; do
   build_tool "${t}"
 done
 
-{% for dkms_module, _ in config.config.extra_modules.items() %}
-{{ generate_dkms_wrapper(dkms_module, craft_part_src_dir + '/kernel', craft_part_src_dir + '/dkms/' + dkms_module, CRAFT_PART_INSTALL) }}
+eval "$(echo 'KERNEL_ABI=UTS_RELEASE' | gcc -E -include "${CRAFT_PART_BUILD}/include/generated/utsrelease.h" -P -)"
+
+{% from 'kernel_macros.sh.j2' import generate_dkms_wrapper with context %}
+{% for dkms_module, _ in config.extra_modules.items() %}
+{% set module_path = craft_part_src_dir + '/dkms/' + dkms_module %}
+{{ generate_dkms_wrapper(dkms_module, craft_part_build_dir, module_path, CRAFT_PART_INSTALL, target_arch) }}
+ln -sv {{ module_path|escape_shell_word }} {{ module_path|escape_shell_word }}-0
 ( # Build the module in a subshell to avoid polluting the environment
     "module_build_{{dkms_module}}"
 )
 {% endfor %}
 
-eval "$(echo 'KERNEL_ABI=UTS_RELEASE' | gcc -E -include "${CRAFT_PART_BUILD}/include/generated/utsrelease.h" -P -)"
 pack_kernel "${KERNEL_ABI}"
 create_snap_structure

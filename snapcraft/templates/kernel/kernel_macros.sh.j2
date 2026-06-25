@@ -32,12 +32,12 @@ find {{ module_path|escape_shell_word }} -name "*.ko" -type f -exec install -Dvm
 {% endif %}
 {% endmacro %}
 
-{% macro generate_dkms_wrapper(module_name, linux_tree_path, module_path, dest_path) %}
+{% macro generate_dkms_wrapper(module_name, linux_tree_path, module_path, dest_path, target_arch) %}
 {% set config_filename = module_path + "/dkms.conf" %}
 module_build_{{module_name}}() {
     local _make_args
     local _count
-    if ! test -f "$config_filename"; then
+    if ! test -f {{ config_filename|escape_shell_word }}; then
         {{ build_external_module(linux_tree_path, module_path, "", dest_path) }}
         return
     fi
@@ -45,6 +45,6 @@ module_build_{{module_name}}() {
     _module_path={{ module_path|escape_shell_word }}
     _module_dirname="$(basename "${_module_path}")"
     _module_dir_parent="$(dirname "${_module_path}")"
-    dkms install -m "${_module_dirname}/0" --no-depmod -k "${KERNEL_ABI}" --kernelsourcedir={{ linux_tree_path|escape_shell_word }} --sourcetree "${_module_dir_parent}" --dkmstree "${CRAFT_PART_BUILD}/dkms/${_module_dirname}" --verbose
+    dkms install -a {{ target_arch|escape_shell_word }} -m "${_module_dirname}/0" --no-depmod -k "${KERNEL_ABI}" --kernelsourcedir {{ linux_tree_path|escape_shell_word }} --sourcetree "${_module_dir_parent}" --installtree "${CRAFT_PART_INSTALL}"/lib/modules --dkmstree "${CRAFT_PART_BUILD}/dkms/${_module_dirname}" --verbose
 }
 {% endmacro %}

@@ -65,7 +65,7 @@ source debian/debian.env
        --flavour {{ ubuntu_kernel_flavor }} \
        --update {{ craft_project_dir }}/custom_config_fragment
 {% endif %}
-{# TODO: dkms #}
+
 fakeroot debian/rules clean
 # This fails due to a change in the config, which is expected
 fakeroot debian/rules updateconfigs || true
@@ -104,6 +104,22 @@ mv -v unpacked-linux-image/* {{ craft_part_install_dir }}
 mkdir -pv {{ craft_part_install_dir }}/lib
 mv -v unpacked-linux-modules/lib/modules {{ craft_part_install_dir }}/lib/
 mv -v unpacked-linux-modules/boot/* {{ craft_part_install_dir }}/boot/
+
+{# Perform DKMS build #}
+{% from 'kernel_macros.sh.j2' import generate_dkms_wrapper with context %}
+{% if ubuntu_kernel_use_binary_package %}
+{% set linux_source_tree = '/usr/src/linux-headers-${KERNEL_ABI}' %}
+{% else %}
+{% set linux_source_tree = craft_part_src_dir %}
+{% endif %}
+{% for dkms_module, _ in config.extra_modules.items() %}
+{% set module_path = craft_part_src_dir + '/dkms/' + dkms_module %}
+{{ generate_dkms_wrapper(dkms_module, linux_source_tree, module_path, CRAFT_PART_INSTALL, target_arch) }}
+ln -sv {{ module_path|escape_shell_word }} {{ module_path|escape_shell_word }}-0
+( # Build the module in a subshell to avoid polluting the environment
+    "module_build_{{dkms_module}}"
+)
+{% endfor %}
 
 depmod -b {{ craft_part_install_dir }} "${KERNEL_ABI}"-{{ ubuntu_kernel_flavor }}
 
