@@ -6,7 +6,7 @@ echo \
     {% endif %}
 apt-get update
 
-KERNEL_ABI="$(apt-cache show linux-image-generic:{{ target_arch }}/{{ ubuntu_kernel_release_name }} | perl -ne '/Version:\s+(\d+\.\d+\.\d+).(\d+).*/ && print "$1-$2\n"')"
+KERNEL_ABI="$(apt-cache show linux-image-{{ ubuntu_kernel_flavor }}:{{ target_arch }}/{{ ubuntu_kernel_release_name }} | perl -ne '/Version:\s+(\d+\.\d+\.\d+).(\d+).*/ && print "$1-$2\n"')"
 echo "Kernel ABI: ${KERNEL_ABI}"
 
 apt-get download linux-image-"${KERNEL_ABI}"-{{ ubuntu_kernel_flavor }}:{{ target_arch }} \

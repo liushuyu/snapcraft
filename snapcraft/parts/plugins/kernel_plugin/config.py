@@ -44,6 +44,8 @@ class KernelConfigBase:
 @dataclass(slots=True, config=PluginProperties.model_config)
 class KernelConfigBuildTypeRepack(KernelConfigBase):
     build_type: Literal["binary-repack"] = "binary-repack"
+    ubuntu_kernel_flavour: NonEmptyString = "generic"
+    ubuntu_release_name: Annotated[str, UbuntuReleaseName] | None = None
 
 
 @dataclass(slots=True, config=PluginProperties.model_config)
