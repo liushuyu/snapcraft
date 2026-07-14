@@ -73,18 +73,49 @@
 """
 
 import os
-from typing import Literal, cast
+from typing import Annotated, Literal, cast
 
-import pydantic
 from craft_application.util import humanize_list
 from craft_parts import errors, infos, plugins
-from typing_extensions import Self, override
+from craft_parts.packages.snaps import SnapPackage
+from pydantic import Discriminator, StringConstraints
+from pydantic.dataclasses import dataclass
+from typing_extensions import override
 
+NonEmptyString = Annotated[str, StringConstraints(min_length=1, strict=True)]
 INITRD_RELEASE_FROM_SNAP_BASE = {
+    "core20": "focal",
     "core22": "jammy",
     "core24": "noble",
     "core26": "resolute",
 }
+
+
+@dataclass(slots=True, config=plugins.PluginProperties.model_config)
+class InitrdConfigBase:
+    build_backend: Literal["dracut", "u-c-i"] = "dracut"
+    extra_modules: list[str] = []
+    extra_firmware: list[str] = []
+    extra_files: list[str] = []
+
+
+@dataclass(slots=True, config=plugins.PluginProperties.model_config)
+class InitrdConfigEFISigning:
+    key: NonEmptyString = "/usr/lib/ubuntu-core-initramfs/snakeoil/PkKek-1-snakeoil.key"
+    cert: NonEmptyString = (
+        "/usr/lib/ubuntu-core-initramfs/snakeoil/PkKek-1-snakeoil.pem"
+    )
+
+
+@dataclass(slots=True, config=plugins.PluginProperties.model_config)
+class InitrdConfigEFI(InitrdConfigBase):
+    image_type: Literal["efi"] = "efi"
+    signing: InitrdConfigEFISigning | None = None
+
+
+@dataclass(slots=True, config=plugins.PluginProperties.model_config)
+class InitrdConfigRawImage(InitrdConfigBase):
+    image_type: Literal["raw"] = "raw"
 
 
 class InitrdPluginProperties(plugins.PluginProperties, frozen=True):
@@ -92,30 +123,9 @@ class InitrdPluginProperties(plugins.PluginProperties, frozen=True):
 
     plugin: Literal["initrd"] = "initrd"
 
-    initrd_build_efi_image: bool = False
-    initrd_efi_image_key: str = (
-        "/usr/lib/ubuntu-core-initramfs/snakeoil/PkKek-1-snakeoil.key"
-    )
-    initrd_efi_image_cert: str = (
-        "/usr/lib/ubuntu-core-initramfs/snakeoil/PkKek-1-snakeoil.pem"
-    )
-    initrd_modules: list[str] = []
-    initrd_firmware: list[str] = []
-    initrd_addons: list[str] = []
-
-    # part properties required by the plugin
-    @pydantic.model_validator(mode="after")
-    def validate_plugin_options(self) -> Self:
-        signing_key = self.initrd_efi_image_key
-        signing_cert = self.initrd_efi_image_cert
-
-        # Validate that either both key and cert are specified or neither is
-        if bool(signing_key) ^ bool(signing_cert):
-            raise ValueError(
-                "If one of initrd-efi-image-key or initrd-efi-image-cert is set, both must be set"
-            )
-
-        return self
+    initrd_config: Annotated[
+        InitrdConfigRawImage | InitrdConfigEFI, Discriminator("image_type")
+    ] = InitrdConfigRawImage()
 
 
 class InitrdPlugin(plugins.Plugin):
@@ -129,39 +139,42 @@ class InitrdPlugin(plugins.Plugin):
         super().__init__(properties=properties, part_info=part_info)
         self.options = cast(InitrdPluginProperties, self._options)
 
+    def _fetch_snap_from_store(self, name: str, arch: str, risk: str) -> None:
+        """Fetch a snap from the store."""
+        snap_package = SnapPackage(name)
+        snap_package.get_store_snap_info()
+
     @override
     def get_pull_commands(self) -> list[str]:
         commands = []
         base = self._part_info.base
-        target_arch = self._part_info.target_arch
-        if (release := INITRD_RELEASE_FROM_SNAP_BASE.get(base)) is None:
+        target_arch = self._part_info._project_info.arch_build_for
+        target_triple = self._part_info._project_info.arch_triplet_build_for
+        if base not in INITRD_RELEASE_FROM_SNAP_BASE:
             raise errors.PartsError(
                 f"base {base!r} is not supported for the initrd plugin. Supported bases are {humanize_list(INITRD_RELEASE_FROM_SNAP_BASE.keys(), 'and')}"
             )
 
-        # URL pieces for Ubuntu base
-        tar_base_url = "https://cdimage.ubuntu.com/ubuntu-base"
-        tar_release = f"{release}/daily/current"
-
-        # Tarball name
-        tar_name = f"{release}-base-{target_arch}.tar.gz"
-
-        # Compose the URL
-        tar_url = f"{tar_base_url}/{tar_release}/{tar_name}"
-        sum_url = f"{tar_base_url}/{tar_release}/SHA256SUMS"
-
         initrd_root = "uc-initramfs-build"
 
-        # Pull the base, verify checksum
+        if self._part_info._project_info.arch_build_on != target_arch:
+            commands.extend(
+                [
+                    f"UBUNTU_STORE_ARCH={target_arch} snap download ubuntu-core-initramfs --edge --basename=u-c-i-snap",
+                    f"unsquashfs -d u-c-i-snap u-c-i-snap.snap /opt/{target_triple}-sysroot.tar",
+                ]
+            )
+            sysroot_tar_path = f"u-c-i-snap/opt/{target_triple}-sysroot.tar"
+        else:
+            sysroot_tar_path = (
+                f"/snap/ubuntu-core-initramfs/current/opt/{target_triple}-sysroot.tar"
+            )
+
         commands.extend(
             [
-                f"curl -fLo {tar_name} {tar_url}",
-                f"curl -fL {sum_url} | grep {tar_name} > {tar_name}.sha256sum",
-                f"sha256sum -c {tar_name}.sha256sum || exit 1",
                 f"mkdir -p {initrd_root}",
-                f"tar --extract --file {tar_name} --directory {initrd_root}",
-                f"cp --no-dereference /etc/resolv.conf {initrd_root}/etc/resolv.conf",
-                f"touch {initrd_root}/dev/null",
+                f"tar -xf {sysroot_tar_path} -C {initrd_root}",
+                f"mknod {initrd_root}/dev/null c 1 3 || touch {initrd_root}/dev/null",
             ]
         )
 
@@ -169,7 +182,9 @@ class InitrdPlugin(plugins.Plugin):
 
     @override
     def get_build_snaps(self) -> set[str]:
-        return set()
+        return {
+            "ubuntu-core-initramfs",
+        }
 
     @override
     def get_build_packages(self) -> set[str]:
@@ -177,8 +192,9 @@ class InitrdPlugin(plugins.Plugin):
         target_arch = self._part_info.target_arch
 
         build_packages = {
-            "curl",
-            "dracut-core",
+            "tar",
+            "binutils-multiarch",
+            "squashfs-tools",
             "fakeroot",
         }
 
@@ -195,11 +211,19 @@ class InitrdPlugin(plugins.Plugin):
     def get_build_environment(self) -> dict[str, str]:
         return {}
 
+    def __generate_build_commands_uci(self) -> list[str]:
+        commands = []
+        raise NotImplementedError("The initrd plugin is not yet implemented")
+
+    def __generate_build_commands_dracut(self) -> list[str]:
+        commands = []
+        raise NotImplementedError("The initrd plugin is not yet implemented")
+
     @override
     def get_build_commands(self) -> list[str]:
         base = self._part_info.base
         arch = self._part_info.target_arch
-        build_efi_image = self.options.initrd_build_efi_image
+        build_efi_image = self.options.initrd_config.image_type == "efi"
 
         if build_efi_image:
             # There are no EFI stubs for s390x or ppc64el
@@ -208,18 +232,14 @@ class InitrdPlugin(plugins.Plugin):
 
             # There are no EFI stubs for riscv until 24.04
             if arch == "riscv64" and base == "core22":
-                raise ValueError("initrd-build-efi-image not allowed for riscv64")
+                raise ValueError(
+                    "initrd-build-efi-image not allowed for riscv64 on core22"
+                )
 
-        return [
-            " ".join(
-                [
-                    "$SNAP/lib/python3.12/site-packages/snapcraft/parts/plugins/initrd_build.sh",
-                    f"initrd-modules={','.join(self.options.initrd_modules)}",
-                    f"initrd-firmware={','.join(self.options.initrd_firmware)}",
-                    f"initrd-addons={','.join(self.options.initrd_addons)}",
-                    f"initrd-build-efi-image={build_efi_image}",
-                    f"initrd-efi-image-key={self.options.initrd_efi_image_key}",
-                    f"initrd-efi-image-cert={self.options.initrd_efi_image_cert}",
-                ]
-            )
-        ]
+        if self.options.initrd_config.build_backend == "u-c-i":
+            return self.__generate_build_commands_uci()
+        if self.options.initrd_config.build_backend == "dracut":
+            return self.__generate_build_commands_dracut()
+        raise ValueError(
+            f"Unsupported initrd-build-backend: {self.options.initrd_config.build_backend!r}"
+        )
