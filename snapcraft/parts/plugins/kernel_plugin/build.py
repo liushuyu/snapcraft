@@ -125,6 +125,8 @@ def _build_jinja2_environment(
         "craft_part_src_dir": str(part_info.part_src_dir),
         "craft_part_install_dir": str(part_info.part_install_dir),
         "craft_part_cache_dir": str(part_info.part_cache_dir),
+        "craft_arch_build_on": project_info.arch_build_on,
+        "craft_arch_build_for": project_info.arch_build_for,
     }
     return env
 

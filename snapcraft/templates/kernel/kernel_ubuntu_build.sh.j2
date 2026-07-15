@@ -85,17 +85,16 @@ mv -v {{ craft_part_build_dir }}/*.deb {{ craft_part_build_dir}}/kernel
 cd {{ craft_part_build_dir }}/kernel
 
 {% if ubuntu_kernel_use_binary_package %}
-    dpkg-deb -R linux-image-*-{{ ubuntu_kernel_flavor }}_*.deb unpacked-linux-image
+    dpkg-deb -x linux-image-*-{{ ubuntu_kernel_flavor }}_*.deb unpacked-linux-image
 {% else %}
     # Source builds are not signed yet
-    dpkg-deb -R linux-image-unsigned-*-{{ ubuntu_kernel_flavor }}_*.deb unpacked-linux-image
+    dpkg-deb -x linux-image-unsigned-*-{{ ubuntu_kernel_flavor }}_*.deb unpacked-linux-image
 {% endif %}
 
-dpkg-deb -x linux-modules-*-{{ ubuntu_kernel_flavor }}_*.deb unpacked-linux-modules
-
-if test -f linux-modules-extra-*-{{ ubuntu_kernel_flavor }}_*.deb; then
-    dpkg-deb -x linux-modules-extra-*-{{ ubuntu_kernel_flavor }}_*.deb unpacked-linux-modules
-fi
+PKGS=(linux-modules-*-{{ ubuntu_kernel_flavor }}_*.deb)
+for i in "${PKGS[@]}"; do
+    dpkg-deb -x "$i" unpacked-linux-modules
+done
 
 KERNEL_ABI="$(dpkg-deb -f linux-modules-*-{{ ubuntu_kernel_flavor }}_*.deb Version | perl -ne '/(\d+\.\d+\.\d+).(\d+).*/ && print "$1-$2\n"')"
 
