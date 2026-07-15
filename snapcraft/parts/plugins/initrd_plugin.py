@@ -78,7 +78,7 @@ from typing import Annotated, Literal, cast
 from craft_application.util import humanize_list
 from craft_parts import errors, infos, plugins
 from craft_parts.packages.snaps import SnapPackage
-from pydantic import Discriminator, StringConstraints
+from pydantic import Discriminator, Field, StringConstraints
 from pydantic.dataclasses import dataclass
 from typing_extensions import override
 
@@ -93,10 +93,12 @@ INITRD_RELEASE_FROM_SNAP_BASE = {
 
 @dataclass(slots=True, config=plugins.PluginProperties.model_config)
 class InitrdConfigBase:
+    kernel_modules: list[str] = Field(
+        min_length=1, default_factory=list, examples=["modules/6.8.0-134-generic"]
+    )
     build_backend: Literal["dracut", "u-c-i"] = "dracut"
-    extra_modules: list[str] = []
-    extra_firmware: list[str] = []
-    extra_files: list[str] = []
+    firmware: list[str] = Field(default_factory=list)
+    extra_files: list[str] = Field(default_factory=list)
 
 
 @dataclass(slots=True, config=plugins.PluginProperties.model_config)
@@ -110,7 +112,7 @@ class InitrdConfigEFISigning:
 @dataclass(slots=True, config=plugins.PluginProperties.model_config)
 class InitrdConfigEFI(InitrdConfigBase):
     image_type: Literal["efi"] = "efi"
-    signing: InitrdConfigEFISigning | None = None
+    signing: InitrdConfigEFISigning = InitrdConfigEFISigning()
 
 
 @dataclass(slots=True, config=plugins.PluginProperties.model_config)
@@ -146,7 +148,7 @@ class InitrdPlugin(plugins.Plugin):
 
     @override
     def get_pull_commands(self) -> list[str]:
-        commands = []
+        commands = ["snap install --edge ubuntu-core-initramfs"]
         base = self._part_info.base
         target_arch = self._part_info._project_info.arch_build_for
         target_triple = self._part_info._project_info.arch_triplet_build_for
@@ -182,9 +184,10 @@ class InitrdPlugin(plugins.Plugin):
 
     @override
     def get_build_snaps(self) -> set[str]:
-        return {
-            "ubuntu-core-initramfs",
-        }
+        # return {
+        #     "ubuntu-core-initramfs",
+        # }
+        return set()
 
     @override
     def get_build_packages(self) -> set[str]:
@@ -211,13 +214,57 @@ class InitrdPlugin(plugins.Plugin):
     def get_build_environment(self) -> dict[str, str]:
         return {}
 
+    def __generate_copy_files_commands(self) -> list[str]:
+        commands = [
+            "cp --reflink=auto --dereference $CRAFT_STAGE/kernel.img $CRAFT_PART_BUILD_DIR/uc-initramfs-build/boot/kernel.img",
+        ]
+        for module in self.options.initrd_config.kernel_modules:
+            commands.append(
+                f"cp --reflink=auto -arT {module} $CRAFT_PART_BUILD_DIR/uc-initramfs-build/usr/lib/modules/{module}"
+            )
+        for firmware in self.options.initrd_config.firmware:
+            commands.append(
+                f"cp --reflink=auto -arT {firmware} $CRAFT_PART_BUILD_DIR/uc-initramfs-build/usr/lib/firmware/"
+            )
+        for file in self.options.initrd_config.extra_files:
+            commands.append(
+                f"cp --reflink=auto -arT {file} $CRAFT_PART_BUILD_DIR/uc-initramfs-build/"
+            )
+        return commands
+
     def __generate_build_commands_uci(self) -> list[str]:
-        commands = []
-        raise NotImplementedError("The initrd plugin is not yet implemented")
+        guessed_kernel_version = os.path.basename(
+            self.options.initrd_config.kernel_modules[0]
+        )
+        if not guessed_kernel_version:
+            raise ValueError(
+                "Could not determine kernel version from kernel-modules path name. Please make sure the path is correct and points to a valid kernel module directory."
+            )
+        commands = [
+            *self.__generate_copy_files_commands(),
+            f"ln -sv kernel.img $CRAFT_PART_BUILD_DIR/uc-initramfs-build/boot/vmlinuz-{guessed_kernel_version}",
+            f"ubuntu-core-initramfs create-initrd --kernelver={guessed_kernel_version} --root $CRAFT_PART_BUILD_DIR/uc-initramfs-build --output $CRAFT_PART_INSTALL_DIR/initrd.img",
+        ]
+        if self.options.initrd_config.image_type == "efi":
+            signing = self.options.initrd_config.signing
+            commands.extend(
+                [
+                    "umount $CRAFT_PART_BUILD_DIR/uc-initramfs-build/etc/uci-signing.key || true",
+                    "umount $CRAFT_PART_BUILD_DIR/uc-initramfs-build/etc/uci-signing.crt || true",
+                    f"mount --bind -r {signing.key} $CRAFT_PART_BUILD_DIR/uc-initramfs-build/etc/uci-signing.key",
+                    f"mount --bind -r {signing.cert} $CRAFT_PART_BUILD_DIR/uc-initramfs-build/etc/uci-signing.crt",
+                    f"ubuntu-core-initramfs create-efi --kernelver={guessed_kernel_version} --root $CRAFT_PART_BUILD_DIR/uc-initramfs-build --output $CRAFT_PART_INSTALL_DIR/kernel.efi --key /etc/uci-signing.key --cert /etc/uci-signing.crt",
+                ]
+            )
+        return commands
 
     def __generate_build_commands_dracut(self) -> list[str]:
-        commands = []
-        raise NotImplementedError("The initrd plugin is not yet implemented")
+        commands = [
+            *self.__generate_copy_files_commands(),
+            "echo Unimplemented",
+            "exit 1",
+        ]
+        return commands
 
     @override
     def get_build_commands(self) -> list[str]:
