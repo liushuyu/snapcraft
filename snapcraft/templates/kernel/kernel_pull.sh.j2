@@ -11,8 +11,7 @@ echo "Kernel ABI: ${KERNEL_ABI}"
 
 apt-get download linux-image-"${KERNEL_ABI}"-{{ ubuntu_kernel_flavor }}:{{ target_arch }} \
     linux-modules-"${KERNEL_ABI}"-{{ ubuntu_kernel_flavor }}:{{ target_arch }} \
-    linux-modules-extra-"${KERNEL_ABI}"-{{ ubuntu_kernel_flavor }}:{{ target_arch }} \
-    linux-firmware
+    linux-modules-extra-"${KERNEL_ABI}"-{{ ubuntu_kernel_flavor }}:{{ target_arch }}
 
     {% if config.extra_modules %}
 apt-get install -y --no-install-recommends \

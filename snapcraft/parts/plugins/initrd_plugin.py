@@ -103,10 +103,8 @@ class InitrdConfigBase:
 
 @dataclass(slots=True, config=plugins.PluginProperties.model_config)
 class InitrdConfigEFISigning:
-    key: NonEmptyString = "/usr/lib/ubuntu-core-initramfs/snakeoil/PkKek-1-snakeoil.key"
-    cert: NonEmptyString = (
-        "/usr/lib/ubuntu-core-initramfs/snakeoil/PkKek-1-snakeoil.pem"
-    )
+    key: NonEmptyString = "/snap/ubuntu-core-initramfs/current/usr/lib/ubuntu-core-initramfs/snakeoil/PkKek-1-snakeoil.key"
+    cert: NonEmptyString = "/snap/ubuntu-core-initramfs/current/usr/lib/ubuntu-core-initramfs/snakeoil/PkKek-1-snakeoil.pem"
 
 
 @dataclass(slots=True, config=plugins.PluginProperties.model_config)
@@ -141,14 +139,22 @@ class InitrdPlugin(plugins.Plugin):
         super().__init__(properties=properties, part_info=part_info)
         self.options = cast(InitrdPluginProperties, self._options)
 
-    def _fetch_snap_from_store(self, name: str, arch: str, risk: str) -> None:
-        """Fetch a snap from the store."""
-        snap_package = SnapPackage(name)
-        snap_package.get_store_snap_info()
+        if not self.options.initrd_config.kernel_modules:
+            raise ValueError(
+                "initrd_config.kernel_modules must be specified and contain at least one module path."
+            )
+        self.guessed_kernel_version = os.path.basename(
+            self.options.initrd_config.kernel_modules[0]
+        )
+        if not self.guessed_kernel_version:
+            raise ValueError(
+                "Could not determine kernel version from kernel-modules path name. Please make sure the path is correct and points to a valid kernel module directory."
+            )
+
 
     @override
     def get_pull_commands(self) -> list[str]:
-        commands = ["snap install --edge ubuntu-core-initramfs"]
+        commands = ["snap install --edge ubuntu-core-initramfs", "snap install --classic --edge dracut"]
         base = self._part_info.base
         target_arch = self._part_info._project_info.arch_build_for
         target_triple = self._part_info._project_info.arch_triplet_build_for
@@ -215,46 +221,67 @@ class InitrdPlugin(plugins.Plugin):
         return {}
 
     def __generate_copy_files_commands(self) -> list[str]:
+        guessed_kernel_version = self.guessed_kernel_version
         commands = [
-            "cp --reflink=auto --dereference $CRAFT_STAGE/kernel.img $CRAFT_PART_BUILD_DIR/uc-initramfs-build/boot/kernel.img",
+            f"mkdir -p $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/modules/{guessed_kernel_version}/",
+            "mkdir -p $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/firmware/",
+            f"cp --reflink=auto --dereference $CRAFT_STAGE/kernel.img $CRAFT_PART_BUILD/uc-initramfs-build/boot/vmlinuz-{guessed_kernel_version}",
         ]
         for module in self.options.initrd_config.kernel_modules:
             commands.append(
-                f"cp --reflink=auto -arT {module} $CRAFT_PART_BUILD_DIR/uc-initramfs-build/usr/lib/modules/{module}"
+                f"cp --reflink=auto -arT {module} $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/modules/{guessed_kernel_version}/"
             )
         for firmware in self.options.initrd_config.firmware:
             commands.append(
-                f"cp --reflink=auto -arT {firmware} $CRAFT_PART_BUILD_DIR/uc-initramfs-build/usr/lib/firmware/"
+                f"cp --reflink=auto -arT {firmware} $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/firmware/"
             )
         for file in self.options.initrd_config.extra_files:
             commands.append(
-                f"cp --reflink=auto -arT {file} $CRAFT_PART_BUILD_DIR/uc-initramfs-build/"
+                f"cp --reflink=auto -arT {file} $CRAFT_PART_BUILD/uc-initramfs-build/"
             )
         return commands
 
+    def __get_systemd_efi_stub_name(self) -> str:
+        """Return the name of the systemd EFI stub file for the target architecture."""
+        arch = self._part_info._project_info.arch_build_for
+        stub_name = {
+            "amd64": "linuxx64.efi.stub",
+            "i386": "linuxia32.efi.stub",
+            "arm64": "linuxaa64.efi.stub",
+            "armhf": "linuxarm.efi.stub",
+            "riscv64": "linuxriscv64.efi.stub",
+        }.get(arch)
+        if not stub_name:
+            raise ValueError(f"Unsupported architecture for EFI stub: {arch}")
+        return stub_name
+
     def __generate_build_commands_uci(self) -> list[str]:
-        guessed_kernel_version = os.path.basename(
-            self.options.initrd_config.kernel_modules[0]
-        )
-        if not guessed_kernel_version:
-            raise ValueError(
-                "Could not determine kernel version from kernel-modules path name. Please make sure the path is correct and points to a valid kernel module directory."
-            )
+        guessed_kernel_version = self.guessed_kernel_version
         commands = [
             *self.__generate_copy_files_commands(),
-            f"ln -sv kernel.img $CRAFT_PART_BUILD_DIR/uc-initramfs-build/boot/vmlinuz-{guessed_kernel_version}",
-            f"ubuntu-core-initramfs create-initrd --kernelver={guessed_kernel_version} --root $CRAFT_PART_BUILD_DIR/uc-initramfs-build --output $CRAFT_PART_INSTALL_DIR/initrd.img",
+            f"ln -sv vmlinuz-{guessed_kernel_version} $CRAFT_PART_BUILD/uc-initramfs-build/boot/kernel.img",
+            f"ubuntu-core-initramfs create-initrd --kernelver={guessed_kernel_version} --root $CRAFT_PART_BUILD/uc-initramfs-build",
         ]
         if self.options.initrd_config.image_type == "efi":
             signing = self.options.initrd_config.signing
+            stub_name = self.__get_systemd_efi_stub_name()
             commands.extend(
                 [
-                    "umount $CRAFT_PART_BUILD_DIR/uc-initramfs-build/etc/uci-signing.key || true",
-                    "umount $CRAFT_PART_BUILD_DIR/uc-initramfs-build/etc/uci-signing.crt || true",
-                    f"mount --bind -r {signing.key} $CRAFT_PART_BUILD_DIR/uc-initramfs-build/etc/uci-signing.key",
-                    f"mount --bind -r {signing.cert} $CRAFT_PART_BUILD_DIR/uc-initramfs-build/etc/uci-signing.crt",
-                    f"ubuntu-core-initramfs create-efi --kernelver={guessed_kernel_version} --root $CRAFT_PART_BUILD_DIR/uc-initramfs-build --output $CRAFT_PART_INSTALL_DIR/kernel.efi --key /etc/uci-signing.key --cert /etc/uci-signing.crt",
+                    "umount $CRAFT_PART_BUILD/uc-initramfs-build/etc/uci-signing.key || touch $CRAFT_PART_BUILD/uc-initramfs-build/etc/uci-signing.key",
+                    "umount $CRAFT_PART_BUILD/uc-initramfs-build/etc/uci-signing.crt || touch $CRAFT_PART_BUILD/uc-initramfs-build/etc/uci-signing.crt",
+                    f"mount --bind -r {signing.key} $CRAFT_PART_BUILD/uc-initramfs-build/etc/uci-signing.key",
+                    f"mount --bind -r {signing.cert} $CRAFT_PART_BUILD/uc-initramfs-build/etc/uci-signing.crt",
+                    f"ubuntu-core-initramfs create-efi --kernelver={guessed_kernel_version} --root $CRAFT_PART_BUILD/uc-initramfs-build --stub /usr/lib/systemd/boot/efi/{stub_name} --key /etc/uci-signing.key --cert /etc/uci-signing.crt",
+                    f"install -Dvm755 $CRAFT_PART_BUILD/uc-initramfs-build/boot/kernel.efi-{guessed_kernel_version} $CRAFT_PART_INSTALL/kernel.efi-{guessed_kernel_version}",
+                    f"ln -sv kernel.efi-{guessed_kernel_version} $CRAFT_PART_INSTALL/kernel.efi",
                 ]
+            )
+        else:
+            commands.append(
+                f"cp -v $CRAFT_PART_BUILD/uc-initramfs-build/boot/initrd.img-{guessed_kernel_version} $CRAFT_PART_INSTALL/boot/"
+            )
+            commands.append(
+                f"ln -sv initrd.img-{guessed_kernel_version} $CRAFT_PART_INSTALL/boot/initrd.img"
             )
         return commands
 
