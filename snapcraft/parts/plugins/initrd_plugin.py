@@ -77,7 +77,6 @@ from typing import Annotated, Literal, cast
 
 from craft_application.util import humanize_list
 from craft_parts import errors, infos, plugins
-from craft_parts.packages.snaps import SnapPackage
 from pydantic import Discriminator, Field, StringConstraints
 from pydantic.dataclasses import dataclass
 from typing_extensions import override
@@ -165,7 +164,7 @@ class InitrdPlugin(plugins.Plugin):
 
         initrd_root = "uc-initramfs-build"
 
-        if self._part_info._project_info.arch_build_on != target_arch:
+        if self._part_info._project_info.is_cross_compiling:
             commands.extend(
                 [
                     f"UBUNTU_STORE_ARCH={target_arch} snap download ubuntu-core-initramfs --edge --basename=u-c-i-snap",
@@ -286,11 +285,39 @@ class InitrdPlugin(plugins.Plugin):
         return commands
 
     def __generate_build_commands_dracut(self) -> list[str]:
+        guessed_kernel_version = self.guessed_kernel_version
+        dracut_command = f'dracut -v --enhanced-cpio --force --kver "{guessed_kernel_version}" -a busybox --no-hostonly -r $CRAFT_PART_BUILD/uc-initramfs-build'
+        if self.options.initrd_config.image_type == "efi":
+            signing = self.options.initrd_config.signing
+            stub_name = self.__get_systemd_efi_stub_name()
+            dracut_command += f" --uefi --ukify --uefi-stub /usr/lib/systemd/boot/efi/{stub_name} --kernel-image $CRAFT_PART_BUILD/uc-initramfs-build/boot/kernel.img"
+            # FIXME: dracut currently has a bug where if the splash image is not specified, it will "invent" a path for the splash image. This is a workaround until dracut is fixed.
+            dracut_command += " --uefi-splash-image $CRAFT_PART_BUILD/uc-initramfs-build/boot/empty.bmp"
+            dracut_command = f"uefi_secureboot_key={signing.key} uefi_secureboot_cert={signing.cert} " + dracut_command
+        # Include extra files
+        for file in self.options.initrd_config.extra_files:
+            dracut_command += f" -I {file}"
         commands = [
             *self.__generate_copy_files_commands(),
-            "echo Unimplemented",
-            "exit 1",
+            f"ln -sfv vmlinuz-{guessed_kernel_version} $CRAFT_PART_BUILD/uc-initramfs-build/boot/kernel.img",
+            "snap connect dracut:mount-observe",
+            "snap connect dracut:hardware-observe",
+            "snap connect dracut:system-backup",
+            "touch $CRAFT_PART_BUILD/uc-initramfs-build/boot/empty.bmp",
+            'cp -ar "/snap/dracut/current/lib/dracut" "$CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/"',
+            dracut_command,
         ]
+
+        if self.options.initrd_config.image_type == "efi":
+            commands.extend([
+                f"cp -v $CRAFT_PART_BUILD/uc-initramfs-build/boot/EFI/Linux/linux-{guessed_kernel_version}*.efi $CRAFT_PART_INSTALL/kernel.efi-{guessed_kernel_version}",
+                f"ln -sv kernel.efi-{guessed_kernel_version} $CRAFT_PART_INSTALL/kernel.efi"
+            ])
+        else:
+            commands.extend([
+                f"cp -v $CRAFT_PART_BUILD/uc-initramfs-build/boot/initramfs-{guessed_kernel_version}.img $CRAFT_PART_INSTALL/boot/",
+                f"ln -sv initramfs-{guessed_kernel_version}.img $CRAFT_PART_INSTALL/boot/initrd.img"
+            ])
         return commands
 
     @override
