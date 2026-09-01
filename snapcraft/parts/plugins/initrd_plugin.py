@@ -238,6 +238,13 @@ class InitrdPlugin(plugins.Plugin):
             commands.append(
                 f"cp --reflink=auto -arT {file} $CRAFT_PART_BUILD/uc-initramfs-build/"
             )
+        # dracut-install copies files with `cp --preserve`, which fails since
+        # the build environment cannot preserve the setuid bits of binaries such
+        # such as /usr/bin/mount and /usr/bin/umount. Strip these bits since the
+        # initramfs runs everything as root and does not need them.
+        commands.append(
+            "find $CRAFT_PART_BUILD/uc-initramfs-build -type f -perm /6000 -exec chmod -s {} +"
+        )
         return commands
 
     def __get_systemd_efi_stub_name(self) -> str:
