@@ -70,14 +70,14 @@ source debian/debian.env
        --update {{ craft_project_dir }}/custom_config_fragment
 {% endif %}
 
-FAKEROOT="fakeroot"
-
 if [[ "$UID" = '0' ]]; then
     FAKEROOT=""
 fi
 $FAKEROOT debian/rules clean
-# This fails due to a change in the config, which is expected
-$FAKEROOT debian/rules updateconfigs || true
+# This fails due to a change in the config, which is expected.
+# Feed empty lines to stdin so kconfig selects defaults for any NEW options
+# instead of blocking on an interactive prompt.
+( : | $FAKEROOT debian/rules updateconfigs ) || true
 $FAKEROOT debian/rules printenv
 
 $FAKEROOT debian/rules build-{{ ubuntu_kernel_flavor }}
