@@ -67,8 +67,10 @@ source debian/debian.env
 {% endif %}
 
 fakeroot debian/rules clean
-# This fails due to a change in the config, which is expected
-fakeroot debian/rules updateconfigs || true
+# This fails due to a change in the config, which is expected.
+# Feed empty lines to stdin so kconfig selects defaults for any NEW options
+# instead of blocking on an interactive prompt.
+( : | fakeroot debian/rules updateconfigs ) || true
 fakeroot debian/rules printenv
 
 fakeroot debian/rules build-{{ ubuntu_kernel_flavor }}
