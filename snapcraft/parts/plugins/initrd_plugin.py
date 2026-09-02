@@ -291,7 +291,7 @@ class InitrdPlugin(plugins.Plugin):
                     "umount $CRAFT_PART_BUILD/uc-initramfs-build/etc/uci-signing.crt || touch $CRAFT_PART_BUILD/uc-initramfs-build/etc/uci-signing.crt",
                     f"mount --bind -r {signing.key} $CRAFT_PART_BUILD/uc-initramfs-build/etc/uci-signing.key",
                     f"mount --bind -r {signing.cert} $CRAFT_PART_BUILD/uc-initramfs-build/etc/uci-signing.crt",
-                    f"ubuntu-core-initramfs create-efi --kernelver={guessed_kernel_version} --root $CRAFT_PART_BUILD/uc-initramfs-build --stub /usr/lib/systemd/boot/efi/{stub_name} --key /etc/uci-signing.key --cert /etc/uci-signing.crt",
+                    f"ubuntu-core-initramfs create-efi --kernelver={guessed_kernel_version} --root $CRAFT_PART_BUILD/uc-initramfs-build --stub /usr/lib/systemd/boot/efi/{stub_name} --initrd /boot/initrd.img --kernel /boot/vmlinuz --output /boot/kernel.efi --key /etc/uci-signing.key --cert /etc/uci-signing.crt",
                     f"install -Dvm755 $CRAFT_PART_BUILD/uc-initramfs-build/boot/kernel.efi-{guessed_kernel_version} $CRAFT_PART_INSTALL/kernel.efi-{guessed_kernel_version}",
                     f"ln -sv kernel.efi-{guessed_kernel_version} $CRAFT_PART_INSTALL/kernel.efi",
                 ]
