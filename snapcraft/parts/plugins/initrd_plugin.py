@@ -247,6 +247,19 @@ class InitrdPlugin(plugins.Plugin):
         )
         return commands
 
+    def __snapd_info_command(self) -> str:
+        # ubuntu-image reads a snapd-info file at the kernel snap root to learn
+        # which snapd version is embedded in the initramfs. Copy it from the
+        # initramfs build root so image builds don't assume an incompatible one.
+        root = "$CRAFT_PART_BUILD/uc-initramfs-build"
+        return (
+            f'src="$(find {root} -path "*/usr/lib/snapd/info" -print -quit)"; '
+            'if [ -n "$src" ]; then '
+            'cp -v "$src" "$CRAFT_PART_INSTALL/snapd-info"; '
+            'else echo "WARNING: snapd info not found in initramfs; '
+            'ubuntu-image may reject the kernel" >&2; fi'
+        )
+
     def __get_systemd_efi_stub_name(self) -> str:
         """Return the name of the systemd EFI stub file for the target architecture."""
         arch = self._part_info._project_info.arch_build_for
@@ -267,6 +280,7 @@ class InitrdPlugin(plugins.Plugin):
             *self.__generate_copy_files_commands(),
             f"ln -sv vmlinuz-{guessed_kernel_version} $CRAFT_PART_BUILD/uc-initramfs-build/boot/kernel.img",
             f"ubuntu-core-initramfs create-initrd --kernelver={guessed_kernel_version} --root $CRAFT_PART_BUILD/uc-initramfs-build",
+            self.__snapd_info_command(),
         ]
         if self.options.initrd_config.image_type == "efi":
             signing = self.options.initrd_config.signing
@@ -313,6 +327,7 @@ class InitrdPlugin(plugins.Plugin):
             "touch $CRAFT_PART_BUILD/uc-initramfs-build/boot/empty.bmp",
             'cp -ar "/snap/dracut/current/lib/dracut" "$CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/"',
             dracut_command,
+            self.__snapd_info_command(),
         ]
 
         if self.options.initrd_config.image_type == "efi":
