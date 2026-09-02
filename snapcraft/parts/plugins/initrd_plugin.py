@@ -279,7 +279,14 @@ class InitrdPlugin(plugins.Plugin):
         commands = [
             *self.__generate_copy_files_commands(),
             f"ln -sv vmlinuz-{guessed_kernel_version} $CRAFT_PART_BUILD/uc-initramfs-build/boot/kernel.img",
-            f"ubuntu-core-initramfs create-initrd --kernelver={guessed_kernel_version} --root $CRAFT_PART_BUILD/uc-initramfs-build",
+            # The sysroot tar is a base root without the ubuntu-core-initramfs
+            # package, so create-initrd finds no skeleton and builds an empty
+            # image. Copy the skeleton from the snap into the root first.
+            "cp -a /snap/ubuntu-core-initramfs/current/usr/lib/ubuntu-core-initramfs $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/",
+            # create-initrd os.makedirs() this dir and fails if the base root
+            # already provides it.
+            "rm -rf $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/ubuntu-core-initramfs/main/usr/share/doc",
+            f"ubuntu-core-initramfs create-initrd --kernelver={guessed_kernel_version} --root $CRAFT_PART_BUILD/uc-initramfs-build --output /boot/initrd.img",
             self.__snapd_info_command(),
         ]
         if self.options.initrd_config.image_type == "efi":
