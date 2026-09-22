@@ -59,6 +59,7 @@ source debian/debian.env
 {% set has_ubuntu_kernel_config_fragments = config.overrides.override_file or config.overrides.override_options %}
 {% if has_ubuntu_kernel_config_fragments %}
     {# Create a config fragment file to update Ubuntu kernel annotations #}
+    {% from 'kernel_macros.sh.j2' import merge_kernel_config with context %}
     {{ merge_kernel_config('/dev/null', craft_project_dir + '/custom_config_fragment', config.overrides.override_file, config.overrides.override_options|serialize_kernel_config) }}
     ./debian/scripts/misc/annotations \
        --arch {{ target_arch }} \
