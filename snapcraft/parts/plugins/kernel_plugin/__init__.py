@@ -13,6 +13,7 @@ from typing_extensions import override
 from craft_archives import repo
 
 from .build import (
+    KERNEL_ARCH_FROM_SNAP_ARCH,
     escape_shell_word,
     generate_build_commands,
     generate_pull_commands,
@@ -89,15 +90,6 @@ KERNEL_TOOLS_BUILD_DEPS = {
         "pkg-config:target",
     },
     "hyperv": set(),
-}
-KERNEL_ARCH_FROM_SNAP_ARCH = {
-    "i386": "x86",
-    "amd64": "x86",
-    "armhf": "arm",
-    "arm64": "arm64",
-    "ppc64el": "powerpc",
-    "riscv64": "riscv",
-    "s390x": "s390",
 }
 
 

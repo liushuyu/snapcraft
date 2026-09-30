@@ -23,6 +23,15 @@ UBUNTU_RELEASE_FROM_SNAP_BASE = {
     "core24": "noble",
     "core26": "resolute",
 }
+KERNEL_ARCH_FROM_SNAP_ARCH = {
+    "i386": "x86",
+    "amd64": "x86",
+    "armhf": "arm",
+    "arm64": "arm64",
+    "ppc64el": "powerpc",
+    "riscv64": "riscv",
+    "s390x": "s390",
+}
 
 
 def escape_shell_word(word: str) -> str:
@@ -112,6 +121,9 @@ def _build_jinja2_environment(
     env.globals |= {
         "snap_version": __version__,
         "target_arch": project_info.arch_build_for,
+        "kernel_arch": KERNEL_ARCH_FROM_SNAP_ARCH.get(
+            project_info.arch_build_for, project_info.arch_build_for
+        ),
         "is_cross_compiling": project_info.is_cross_compiling,
         "kernel_image_targets": config.image_targets
         or get_default_image_targets_for_arch(project_info.arch_build_for)
