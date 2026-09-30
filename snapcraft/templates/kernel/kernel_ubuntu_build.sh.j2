@@ -45,14 +45,14 @@ source debian/debian.env
     {% endfor %}
 {% endif %}
 
-{% set has_ubuntu_kernel_image_target = config.image_target is not none %}
+{% set has_ubuntu_kernel_image_target = config.image_targets is not none %}
 {% if has_ubuntu_kernel_image_target %}
     echo "Updating build target image"
     sed -i \
-        's/^\s*build_image.*/build_image = {{ config.image_target }}/g' \
+        's/^\s*build_image.*/build_image = {{ config.image_targets|join(' ') }}/g' \
         debian.master/rules.d/{{ target_arch }}.mk
     sed -i \
-        's|^\s*kernel_file.*|kernel_file = arch/{{ target_arch }}/boot/{{ config.image_target }}|g' \
+        's|^\s*kernel_file.*|kernel_file = arch/{{ target_arch }}/boot/{{ config.image_targets[0] }}|g' \
         debian.master/rules.d/{{ target_arch }}.mk
 {% endif %}
 
