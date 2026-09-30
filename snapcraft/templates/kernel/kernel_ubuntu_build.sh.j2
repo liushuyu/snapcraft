@@ -52,7 +52,7 @@ source debian/debian.env
         's/^\s*build_image.*/build_image = {{ config.image_targets|join(' ') }}/g' \
         debian.master/rules.d/{{ target_arch }}.mk
     sed -i \
-        's|^\s*kernel_file.*|kernel_file = arch/{{ target_arch }}/boot/{{ config.image_targets[0] }}|g' \
+        's|^\s*kernel_file.*|kernel_file = arch/{{ kernel_arch }}/boot/{{ config.image_targets[0] }}|g' \
         debian.master/rules.d/{{ target_arch }}.mk
 {% endif %}
 
