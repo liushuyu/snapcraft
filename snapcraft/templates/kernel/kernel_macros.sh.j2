@@ -1,0 +1,50 @@
+{% macro merge_kernel_config(source, target, override_file, override_value) %}
+{% set target_filename = target|escape_shell_word %}
+{% if source != target %}
+cp -v {{ source|escape_shell_word }} {{ target_filename }}
+{% endif %}
+{% if override_file %}
+echo '# -- From {{ override_file }} --' >> {{ target_filename }}
+cat {{ override_file|escape_shell_word }} >> {{ target_filename }}
+{%- endif %}
+{% if override_value %}
+echo '# -- Overridden value --' >> {{ target_filename }}
+cat << 'EOF' >> {{ target_filename }}
+{{ override_value }}
+EOF
+{%- endif %}
+{% endmacro %}
+
+{% macro build_external_module(linux_tree_path, module_path, module_name, dest_path) %}
+{% set target = "modules" %}
+{% if module_name == "$template" %}
+{% set target = "" %}
+{% elif module_name %}
+{% set target = module_name + ".ko" %}
+{% endif %}
+make -C {{ linux_tree_path|escape_shell_word }} M={{ module_path|escape_shell_word }} {{ target|escape_shell_word if target }}
+{% if dest_path %}
+{% if target %}
+install -Dvm755 "{{ target }}" {{ dest_path|escape_shell_word }}/updates/dkms/{{ target|escape_shell_word }}
+{% else %}
+find {{ module_path|escape_shell_word }} -name "*.ko" -type f -exec install -Dvm755 '{}' {{ dest_path|escape_shell_word }}/updates/dkms/'{}' ';'
+{% endif %}
+{% endif %}
+{% endmacro %}
+
+{% macro generate_dkms_wrapper(module_name, linux_tree_path, module_path, dest_path, target_arch) %}
+{% set config_filename = module_path + "/dkms.conf" %}
+module_build_{{module_name}}() {
+    local _make_args
+    local _count
+    if ! test -f {{ config_filename|escape_shell_word }}; then
+        {{ build_external_module(linux_tree_path, module_path, "", dest_path) }}
+        return
+    fi
+    local _module_dirname _module_dir_parent _module_path
+    _module_path={{ module_path|escape_shell_word }}
+    _module_dirname="$(basename "${_module_path}")"
+    _module_dir_parent="$(dirname "${_module_path}")"
+    dkms install -a {{ target_arch|escape_shell_word }} -m "${_module_dirname}/0" --no-depmod -k "${KERNEL_ABI}" --kernelsourcedir {{ linux_tree_path|escape_shell_word }} --sourcetree "${_module_dir_parent}" --installtree "${CRAFT_PART_INSTALL}"/lib/modules --dkmstree "${CRAFT_PART_BUILD}/dkms/${_module_dirname}" --verbose
+}
+{% endmacro %}
