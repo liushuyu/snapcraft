@@ -150,10 +150,12 @@ class InitrdPlugin(plugins.Plugin):
                 "Could not determine kernel version from kernel-modules path name. Please make sure the path is correct and points to a valid kernel module directory."
             )
 
-
     @override
     def get_pull_commands(self) -> list[str]:
-        commands = ["snap install --edge ubuntu-core-initramfs", "snap install --edge dracut"]
+        commands = [
+            "snap install --edge ubuntu-core-initramfs",
+            "snap install --edge dracut",
+        ]
         base = self._part_info.base
         target_arch = self._part_info._project_info.arch_build_for
         target_triple = self._part_info._project_info.arch_triplet_build_for
@@ -190,7 +192,8 @@ class InitrdPlugin(plugins.Plugin):
     @override
     def get_build_snaps(self) -> set[str]:
         # return {
-        #     "ubuntu-core-initramfs",
+            # "ubuntu-core-initramfs",
+            # "dracut",
         # }
         return set()
 
@@ -262,12 +265,9 @@ class InitrdPlugin(plugins.Plugin):
             f"ln -sfv vmlinuz-{guessed_kernel_version} $CRAFT_PART_BUILD/uc-initramfs-build/boot/kernel.img",
             # The sysroot tar is a base root without the ubuntu-core-initramfs
             # package, so create-initrd finds no skeleton and builds an empty
-            # image. Copy the skeleton from the snap into the root first.
+            # image. Mount the skeleton from the snap into the root first.
             "mkdir -p $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/ubuntu-core-initramfs",
             "mount --bind -r /snap/ubuntu-core-initramfs/current/usr/lib/ubuntu-core-initramfs $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/ubuntu-core-initramfs",
-            # create-initrd os.makedirs() this dir and fails if the base root
-            # already provides it.
-            "rm -rf $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/ubuntu-core-initramfs/main/usr/share/doc",
             f"ubuntu-core-initramfs create-initrd --kernelver={guessed_kernel_version} --root $CRAFT_PART_BUILD/uc-initramfs-build --output /boot/initrd.img",
         ]
         if self.options.initrd_config.image_type == "efi":
@@ -302,7 +302,10 @@ class InitrdPlugin(plugins.Plugin):
             dracut_command += f" --uefi --ukify --uefi-stub /usr/lib/systemd/boot/efi/{stub_name} --kernel-image $CRAFT_PART_BUILD/uc-initramfs-build/boot/kernel.img"
             # FIXME: dracut currently has a bug where if the splash image is not specified, it will "invent" a path for the splash image. This is a workaround until dracut is fixed.
             dracut_command += " --uefi-splash-image $CRAFT_PART_BUILD/uc-initramfs-build/boot/empty.bmp"
-            dracut_command = f"uefi_secureboot_key={signing.key} uefi_secureboot_cert={signing.cert} " + dracut_command
+            dracut_command = (
+                f"uefi_secureboot_key={signing.key} uefi_secureboot_cert={signing.cert} "
+                + dracut_command
+            )
         # Include extra files
         for file in self.options.initrd_config.extra_files:
             dracut_command += f" -I {file}"
@@ -318,15 +321,19 @@ class InitrdPlugin(plugins.Plugin):
         ]
 
         if self.options.initrd_config.image_type == "efi":
-            commands.extend([
-                f"cp -v $CRAFT_PART_BUILD/uc-initramfs-build/boot/EFI/Linux/linux-{guessed_kernel_version}*.efi $CRAFT_PART_INSTALL/kernel.efi-{guessed_kernel_version}",
-                f"ln -sfv kernel.efi-{guessed_kernel_version} $CRAFT_PART_INSTALL/kernel.efi"
-            ])
+            commands.extend(
+                [
+                    f"cp -v $CRAFT_PART_BUILD/uc-initramfs-build/boot/EFI/Linux/linux-{guessed_kernel_version}*.efi $CRAFT_PART_INSTALL/kernel.efi-{guessed_kernel_version}",
+                    f"ln -sfv kernel.efi-{guessed_kernel_version} $CRAFT_PART_INSTALL/kernel.efi",
+                ]
+            )
         else:
-            commands.extend([
-                f"cp -v $CRAFT_PART_BUILD/uc-initramfs-build/boot/initramfs-{guessed_kernel_version}.img $CRAFT_PART_INSTALL/boot/",
-                f"ln -sfv initramfs-{guessed_kernel_version}.img $CRAFT_PART_INSTALL/boot/initrd.img"
-            ])
+            commands.extend(
+                [
+                    f"cp -v $CRAFT_PART_BUILD/uc-initramfs-build/boot/initramfs-{guessed_kernel_version}.img $CRAFT_PART_INSTALL/boot/",
+                    f"ln -sfv initramfs-{guessed_kernel_version}.img $CRAFT_PART_INSTALL/boot/initrd.img",
+                ]
+            )
         return commands
 
     @override
