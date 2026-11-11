@@ -23,6 +23,7 @@ from .config import (
     KernelBuildConfig,
     KernelConfigBuildTypeGeneric,
     KernelConfigBuildTypeUbuntu,
+    KernelTools,
 )
 
 logger = logging.getLogger(__name__)
@@ -31,21 +32,6 @@ logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from craft_parts.parts import Part
 
-
-KernelTools = Literal[
-    "bpf",
-    "cpupower",
-    "perf",
-    "perf_python",
-    "perf_jvmti",
-    "rtla",
-    "x86",
-    "acpidbg",
-    "usbip",
-    "hyperv",
-]
-UbuntuReleaseName = StringConstraints(min_length=1, to_lower=True, strict=True)
-NonEmptyString = Annotated[str, StringConstraints(min_length=1, strict=True)]
 
 VALID_KERNEL_TOOLS = set(KernelTools.__args__)
 KERNEL_TOOLS_BUILD_DEPS = {
@@ -208,7 +194,7 @@ class KernelPlugin(plugins.Plugin):
 
         if is_binary_repack and not self.options.kernel_build_config.extra_modules:
             # if we are just re-packing a binary package, we only need the tools to extract and repack the deb
-            return {"dpkg-dev", "fakeroot", "rsync", "kmod"}
+            return {"dpkg-dev", "fakeroot", "rsync", "kmod", "findutils"}
 
         if base_number >= 23:
             base_packages |= {

@@ -224,6 +224,10 @@ create_snap_structure() {
     mv -f "${CRAFT_PART_INSTALL}/lib/firmware" "${CRAFT_PART_INSTALL}"
     ln -sf ../firmware "${CRAFT_PART_INSTALL}/lib/firmware"
   fi
+  if [ -d "${CRAFT_PART_INSTALL}/usr/lib/firmware" ]; then
+    cp -ar "${CRAFT_PART_INSTALL}/usr/lib/firmware" "${CRAFT_PART_INSTALL}"
+    rm -rf "${CRAFT_PART_INSTALL}/usr/lib/firmware"
+  fi
 }
 
 if [ -d "${CRAFT_PART_SRC}/kernel" ]; then

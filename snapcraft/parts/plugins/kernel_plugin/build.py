@@ -1,4 +1,5 @@
 import shlex
+from collections.abc import Sequence
 
 from craft_parts import PartInfo
 from jinja2 import Environment, PackageLoader
@@ -39,7 +40,7 @@ def escape_shell_word(word: str) -> str:
     return shlex.quote(word)
 
 
-def to_bash_array(arr: list[str] | set[str] | dict[str, str]) -> str:
+def to_bash_array(arr: Sequence[str] | dict[str, str]) -> str:
     """Escape a list of strings into a bash array literal."""
     # Jinja2 does not support type checking, so we need to validate the input at runtime
     if isinstance(arr, (list, set)):
@@ -50,7 +51,9 @@ def to_bash_array(arr: list[str] | set[str] | dict[str, str]) -> str:
             f"[{escape_shell_word(k)}]={escape_shell_word(v)}" for k, v in arr.items()
         ]
         return f"({' '.join(escaped_items)})"
-    raise ValueError(f"Input must be a list of strings or a dictionary, not {type(arr)}")
+    raise ValueError(
+        f"Input must be a list of strings or a dictionary, not {type(arr)}"
+    )
 
 
 def normalize_kernel_config(config: ConfigOptions) -> list[str]:
@@ -86,7 +89,7 @@ def get_default_image_targets_for_arch(arch: str) -> list[str]:
 def _get_current_base_release(config: KernelBuildConfig, base_name: str) -> str:
     auto_detected_release = UBUNTU_RELEASE_FROM_SNAP_BASE.get(base_name)
     if config.build_type in {"generic-tree", "binary-repack"}:
-        result = config.ubuntu_release_name or auto_detected_release
+        result = getattr(config, "ubuntu_release_name", auto_detected_release)
         if not result:
             raise ValueError(
                 f"Unable to determine Ubuntu release name for base {base_name!r}. Please specify ubuntu_release_name in the kernel build config."
@@ -133,7 +136,7 @@ def _build_jinja2_environment(
         "ubuntu_kernel_release_name": _get_current_base_release(
             config, project_info.base
         ),
-        "ubuntu_kernel_flavor": config.ubuntu_kernel_flavour
+        "ubuntu_kernel_flavor": getattr(config, "ubuntu_kernel_flavour", None)
         if config.build_type in {"ubuntu-tree", "binary-repack"}
         else None,
         "craft_part_build_dir": str(part_info.part_build_dir),
