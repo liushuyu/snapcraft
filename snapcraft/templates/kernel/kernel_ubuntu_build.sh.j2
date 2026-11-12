@@ -105,6 +105,7 @@ for i in "${PKGS[@]}"; do
 done
 
 KERNEL_ABI="$(dpkg-deb -f linux-modules-*-{{ ubuntu_kernel_flavor }}_*.deb Version | perl -ne '/(\d+\.\d+\.\d+).(\d+).*/ && print "$1-$2\n"')"
+echo "${KERNEL_ABI}" > {{ craft_part_state_dir }}/kernel-abi
 
 # Unpack the linux deb binaries to snap package structure
 mv -v unpacked-linux-image/* {{ craft_part_install_dir }}
@@ -142,7 +143,7 @@ ln -fv {{ craft_part_install_dir }}/vmlinuz-"${KERNEL_ABI}"-{{ ubuntu_kernel_fla
 mv -v {{ craft_part_install_dir }}/lib/modules {{ craft_part_install_dir }}/
 
 # Device tree
-DTBS=unpacked-linux-firmware/lib/firmware/"${KERNEL_ABI}"/device-tree
+DTBS=unpacked-linux-modules/lib/firmware/"${KERNEL_ABI}"-{{ ubuntu_kernel_flavor }}/device-tree
 [ -d "${DTBS}" ] && mv -v "${DTBS}" {{ craft_part_install_dir }}/dtbs
 
 # Firmware

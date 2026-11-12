@@ -81,6 +81,9 @@ from pydantic import Discriminator, Field, StringConstraints
 from pydantic.dataclasses import dataclass
 from typing_extensions import override
 
+KernelModuleName = Annotated[
+    str, StringConstraints(pattern=r"^[a-z0-9\-_]+$", strict=True)
+]
 NonEmptyString = Annotated[str, StringConstraints(min_length=1, strict=True)]
 INITRD_RELEASE_FROM_SNAP_BASE = {
     "core20": "focal",
@@ -91,12 +94,19 @@ INITRD_RELEASE_FROM_SNAP_BASE = {
 
 
 @dataclass(slots=True, config=plugins.PluginProperties.model_config)
+class InitrdConfigFirmware:
+    search_paths: list[str] = Field(default_factory=list)
+    manual_include: list[str] = Field(default_factory=list)
+
+
+@dataclass(slots=True, config=plugins.PluginProperties.model_config)
 class InitrdConfigBase:
-    kernel_modules: list[str] = Field(
+    kernel_modules: list[str] | None = Field(
         min_length=1, default_factory=list, examples=["modules/6.8.0-134-generic"]
     )
     build_backend: Literal["dracut", "u-c-i"] = "dracut"
-    firmware: list[str] = Field(default_factory=list)
+    firmware: InitrdConfigFirmware = InitrdConfigFirmware()
+    kernel_modules_to_include: list[KernelModuleName] = Field(default_factory=list)
     extra_files: list[str] = Field(default_factory=list)
 
 
@@ -122,6 +132,7 @@ class InitrdPluginProperties(plugins.PluginProperties, frozen=True):
 
     plugin: Literal["initrd"] = "initrd"
 
+    after: list[str] = Field(default_factory=list)
     initrd_config: Annotated[
         InitrdConfigRawImage | InitrdConfigEFI, Discriminator("image_type")
     ] = InitrdConfigRawImage()
@@ -137,6 +148,15 @@ class InitrdPlugin(plugins.Plugin):
     ) -> None:
         super().__init__(properties=properties, part_info=part_info)
         self.options = cast(InitrdPluginProperties, self._options)
+
+        if self.options.after:
+            if len(self.options.after) > 1:
+                raise ValueError(
+                    "The 'after' property can only contain one element for the initrd plugin."
+                    "Because initrd is closely tied to a specific kernel version, it can only depend on one other part."
+                )
+            self.guessed_kernel_version = "${KERNEL_ABI}-${KERNEL_ABI_FLAVOUR}"
+            return
 
         if not self.options.initrd_config.kernel_modules:
             raise ValueError(
@@ -155,6 +175,11 @@ class InitrdPlugin(plugins.Plugin):
         commands = [
             "snap install --edge ubuntu-core-initramfs",
             "snap install --edge dracut",
+            "snap connect ubuntu-core-initramfs:dracut-support",
+            "snap connect dracut:mount-observe",
+            "snap connect dracut:hardware-observe",
+            "snap connect dracut:system-backup",
+            "snap connect dracut:dracut-support",
         ]
         base = self._part_info.base
         target_arch = self._part_info._project_info.arch_build_for
@@ -170,7 +195,7 @@ class InitrdPlugin(plugins.Plugin):
             commands.extend(
                 [
                     f"UBUNTU_STORE_ARCH={target_arch} snap download ubuntu-core-initramfs --edge --basename=u-c-i-snap",
-                    f"unsquashfs -d u-c-i-snap u-c-i-snap.snap /opt/{target_triple}-sysroot.tar",
+                    f"unsquashfs -d u-c-i-snap u-c-i-snap.snap /opt/{target_triple}-sysroot.tar /usr/lib/ubuntu-core-initramfs/main",
                 ]
             )
             sysroot_tar_path = f"u-c-i-snap/opt/{target_triple}-sysroot.tar"
@@ -183,6 +208,7 @@ class InitrdPlugin(plugins.Plugin):
             [
                 f"mkdir -p {initrd_root}",
                 f"tar -xf {sysroot_tar_path} -C {initrd_root}",
+                f"if test -d u-c-i-snap/usr/lib; then cp -aT u-c-i-snap/usr/lib {initrd_root}/usr/lib; fi",
                 f"mknod {initrd_root}/dev/null c 1 3 || touch {initrd_root}/dev/null",
             ]
         )
@@ -192,8 +218,8 @@ class InitrdPlugin(plugins.Plugin):
     @override
     def get_build_snaps(self) -> set[str]:
         # return {
-            # "ubuntu-core-initramfs",
-            # "dracut",
+        # "ubuntu-core-initramfs",
+        # "dracut",
         # }
         return set()
 
@@ -207,11 +233,12 @@ class InitrdPlugin(plugins.Plugin):
             "binutils-multiarch",
             "squashfs-tools",
             "fakeroot",
+            "findutils",
         }
 
         # if running as non-root and cross-building we need libfake{ch}root for
         # the target arch
-        if host_arch != target_arch and (os.getuid() != 0):
+        if host_arch != target_arch:
             build_packages |= {
                 f"libfakeroot:{target_arch}",
             }
@@ -220,28 +247,70 @@ class InitrdPlugin(plugins.Plugin):
 
     @override
     def get_build_environment(self) -> dict[str, str]:
-        return {}
+        result = {}
+        _kernel_part = self.options.after[0] if self.options.after else None
+        if _kernel_part:
+            result["KERNEL_ABI"] = (
+                f"$(cat {self._part_info.part_state_dir}/../../{_kernel_part}/state/kernel-abi)"
+            )
+            result["KERNEL_ABI_FLAVOUR"] = (
+                f"$(cat {self._part_info.part_state_dir}/../../{_kernel_part}/state/kernel-abi-flavour)"
+            )
+        return result
+
+    @staticmethod
+    def __generate_copy_commands(
+        from_list: list[str] | None, to_path: str
+    ) -> list[str]:
+        """Generate copy commands for the given source list and destination path.
+
+        The copy commands generated will copy all the contents under the specified
+        directories to the destination path specified by `to_path`. Non-directories
+        will be copied into the destination path specified by `to_path`.
+        """
+        if not from_list:
+            return []
+        return [
+            f"copy_unnested {' '.join(from_list)} {to_path}",
+        ]
 
     def __generate_copy_files_commands(self) -> list[str]:
         guessed_kernel_version = self.guessed_kernel_version
+        is_implied_kernel_version = guessed_kernel_version.startswith("$")
         commands = [
             f"mkdir -p $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/modules/{guessed_kernel_version}/",
             "mkdir -p $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/firmware/",
             "install -Dvm644 $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/snapd/info $CRAFT_PART_INSTALL/snapd-info",
             f"cp --reflink=auto --dereference $CRAFT_STAGE/kernel.img $CRAFT_PART_BUILD/uc-initramfs-build/boot/vmlinuz-{guessed_kernel_version}",
+            'copy_unnested() { local dest="${@:$#}"; local srcs=("${@:1:$#-1}"); find "${srcs[@]}" -maxdepth 0 -type d -exec cp --reflink=auto -arT -- "{}" "$dest" ";" -o -not -type d -exec cp --reflink=auto -ar -t "$dest" "{}" +; }',
+            *InitrdPlugin.__generate_copy_commands(
+                self.options.initrd_config.kernel_modules,
+                f"$CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/modules/{guessed_kernel_version}/",
+            ),
+            *InitrdPlugin.__generate_copy_commands(
+                self.options.initrd_config.firmware.search_paths,
+                "$CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/firmware/",
+            ),
+            *InitrdPlugin.__generate_copy_commands(
+                self.options.initrd_config.extra_files,
+                "$CRAFT_PART_BUILD/uc-initramfs-build/",
+            ),
+            "if test -d $CRAFT_STAGE/firmware; then copy_unnested $CRAFT_STAGE/firmware $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/firmware/; fi",
         ]
-        for module in self.options.initrd_config.kernel_modules:
-            commands.append(
-                f"cp --reflink=auto -arT {module} $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/modules/{guessed_kernel_version}/"
+        if is_implied_kernel_version:
+            default_module_path = f"$CRAFT_STAGE/modules/{guessed_kernel_version}/"
+            commands.insert(
+                0,
+                f"if [ -z {guessed_kernel_version} ]; then echo 'Kernel version is not set' && exit 1; fi",
             )
-        for firmware in self.options.initrd_config.firmware:
-            commands.append(
-                f"cp --reflink=auto -arT {firmware} $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/firmware/"
+            commands.insert(
+                1,
+                f"if ! test -d {default_module_path}; then echo 'Default module path not found: {default_module_path}' && exit 1; fi",
             )
-        for file in self.options.initrd_config.extra_files:
             commands.append(
-                f"cp --reflink=auto -arT {file} $CRAFT_PART_BUILD/uc-initramfs-build/"
+                f"copy_unnested {default_module_path} $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/modules/{guessed_kernel_version}/"
             )
+
         return commands
 
     def __get_systemd_efi_stub_name(self) -> str:
@@ -260,17 +329,41 @@ class InitrdPlugin(plugins.Plugin):
 
     def __generate_build_commands_uci(self) -> list[str]:
         guessed_kernel_version = self.guessed_kernel_version
+        needs_mutable_uci = bool(
+            self.options.initrd_config.firmware.manual_include
+        ) or bool(self.options.initrd_config.extra_files)
         commands = [
             *self.__generate_copy_files_commands(),
             f"ln -sfv vmlinuz-{guessed_kernel_version} $CRAFT_PART_BUILD/uc-initramfs-build/boot/kernel.img",
-            "snap connect ubuntu-core-initramfs:dracut-support",
             # The sysroot tar is a base root without the ubuntu-core-initramfs
             # package, so create-initrd finds no skeleton and builds an empty
             # image. Mount the skeleton from the snap into the root first.
             "mkdir -p $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/ubuntu-core-initramfs",
-            "mount --bind -r /snap/ubuntu-core-initramfs/current/usr/lib/ubuntu-core-initramfs $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/ubuntu-core-initramfs",
+            "mount --bind -r /snap/ubuntu-core-initramfs/current/usr/lib/ubuntu-core-initramfs $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/ubuntu-core-initramfs"
+            if not needs_mutable_uci
+            else "cp -a /snap/ubuntu-core-initramfs/current/usr/lib/ubuntu-core-initramfs/. $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/ubuntu-core-initramfs/",
+            f"export $(dpkg-architecture -a{self._part_info._project_info.arch_build_for})",
             f"ubuntu-core-initramfs create-initrd --kernelver={guessed_kernel_version} --root $CRAFT_PART_BUILD/uc-initramfs-build --output /boot/initrd.img",
         ]
+        if self.options.initrd_config.kernel_modules_to_include:
+            with open(self._part_info.part_state_dir / "extra-modules", "w") as f:
+                f.write("\n".join(self.options.initrd_config.kernel_modules_to_include))
+            commands.extend(
+                [
+                    "cat /snap/ubuntu-core-initramfs/current/usr/lib/ubuntu-core-initramfs/modules/main/extra-modules.conf "
+                    f"{self._part_info.part_state_dir / 'extra-modules'} > /tmp/extra-modules.conf",
+                    "umount $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/ubuntu-core-initramfs/modules/main/extra-modules.conf || true",
+                    "mount --bind -r /tmp/extra-modules.conf $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/ubuntu-core-initramfs/modules/main/extra-modules.conf",
+                ]
+            )
+        for file in self.options.initrd_config.firmware.manual_include:
+            commands.append(
+                f"install -Dvm644 $CRAFT_PART_BUILD/uc-initramfs-build/lib/firmware/{file} $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/ubuntu-core-initramfs/main/usr/lib/firmware/{file}"
+            )
+        for obj in self.options.initrd_config.extra_files:
+            commands.append(
+                f"cp -a {obj} $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/ubuntu-core-initramfs/main/"
+            )
         if self.options.initrd_config.image_type == "efi":
             signing = self.options.initrd_config.signing
             stub_name = self.__get_systemd_efi_stub_name()
@@ -281,28 +374,35 @@ class InitrdPlugin(plugins.Plugin):
                     f"mount --bind -r {signing.key} $CRAFT_PART_BUILD/uc-initramfs-build/etc/uci-signing.key",
                     f"mount --bind -r {signing.cert} $CRAFT_PART_BUILD/uc-initramfs-build/etc/uci-signing.crt",
                     f"ubuntu-core-initramfs create-efi --kernelver={guessed_kernel_version} --root $CRAFT_PART_BUILD/uc-initramfs-build --stub /usr/lib/systemd/boot/efi/{stub_name} --initrd /boot/initrd.img --kernel /boot/vmlinuz --output /boot/kernel.efi --key /etc/uci-signing.key --cert /etc/uci-signing.crt",
-                    f"install -Dvm755 $CRAFT_PART_BUILD/uc-initramfs-build/boot/kernel.efi-{guessed_kernel_version} $CRAFT_PART_INSTALL/kernel.efi-{guessed_kernel_version}",
-                    f"ln -sfv kernel.efi-{guessed_kernel_version} $CRAFT_PART_INSTALL/kernel.efi",
+                    f"install -Dvm755 $CRAFT_PART_BUILD/uc-initramfs-build/boot/kernel.efi-{guessed_kernel_version} $CRAFT_PART_INSTALL/kernel.efi",
+                    f"ln -sfv kernel.efi $CRAFT_PART_INSTALL/kernel.efi-{guessed_kernel_version}",
                 ]
             )
         else:
-            commands.append(
-                f"cp -v $CRAFT_PART_BUILD/uc-initramfs-build/boot/initrd.img-{guessed_kernel_version} $CRAFT_PART_INSTALL/boot/"
-            )
-            commands.append(
-                f"ln -sfv initrd.img-{guessed_kernel_version} $CRAFT_PART_INSTALL/boot/initrd.img"
+            commands.extend(
+                [
+                    f"cp -v $CRAFT_PART_BUILD/uc-initramfs-build/boot/initrd.img-{guessed_kernel_version} $CRAFT_PART_INSTALL/initrd.img",
+                    f"ln -sfv initrd.img $CRAFT_PART_INSTALL/initrd.img-{guessed_kernel_version}",
+                ]
             )
         return commands
 
     def __generate_build_commands_dracut(self) -> list[str]:
         guessed_kernel_version = self.guessed_kernel_version
         dracut_command = f'dracut -v --enhanced-cpio --force --kver "{guessed_kernel_version}" -a busybox --no-hostonly -r $CRAFT_PART_BUILD/uc-initramfs-build'
+        if self.options.initrd_config.kernel_modules_to_include:
+            modules_list = " ".join(
+                self.options.initrd_config.kernel_modules_to_include
+            )
+            dracut_command += f' -m "{modules_list}"'
         if self.options.initrd_config.image_type == "efi":
             signing = self.options.initrd_config.signing
             stub_name = self.__get_systemd_efi_stub_name()
             dracut_command += f" --uefi --ukify --uefi-stub /usr/lib/systemd/boot/efi/{stub_name} --kernel-image $CRAFT_PART_BUILD/uc-initramfs-build/boot/kernel.img"
             # FIXME: dracut currently has a bug where if the splash image is not specified, it will "invent" a path for the splash image. This is a workaround until dracut is fixed.
             dracut_command += " --uefi-splash-image $CRAFT_PART_BUILD/uc-initramfs-build/boot/empty.bmp"
+            # Include Ubuntu Core factory files
+            dracut_command += " -i /usr/lib/ubuntu-core-initramfs/main /"
             dracut_command = (
                 f"uefi_secureboot_key={signing.key} uefi_secureboot_cert={signing.cert} "
                 + dracut_command
@@ -313,10 +413,6 @@ class InitrdPlugin(plugins.Plugin):
         commands = [
             *self.__generate_copy_files_commands(),
             f"ln -sfv vmlinuz-{guessed_kernel_version} $CRAFT_PART_BUILD/uc-initramfs-build/boot/kernel.img",
-            "snap connect dracut:mount-observe",
-            "snap connect dracut:hardware-observe",
-            "snap connect dracut:system-backup",
-            "snap connect dracut:dracut-support",
             "touch $CRAFT_PART_BUILD/uc-initramfs-build/boot/empty.bmp",
             'cp -ar "/snap/dracut/current/lib/dracut" "$CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/"',
             dracut_command,
