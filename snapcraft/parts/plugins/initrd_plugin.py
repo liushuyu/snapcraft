@@ -155,6 +155,11 @@ class InitrdPlugin(plugins.Plugin):
         commands = [
             "snap install --edge ubuntu-core-initramfs",
             "snap install --edge dracut",
+            "snap connect ubuntu-core-initramfs:dracut-support",
+            "snap connect dracut:mount-observe",
+            "snap connect dracut:hardware-observe",
+            "snap connect dracut:system-backup",
+            "snap connect dracut:dracut-support",
         ]
         base = self._part_info.base
         target_arch = self._part_info._project_info.arch_build_for
@@ -263,7 +268,6 @@ class InitrdPlugin(plugins.Plugin):
         commands = [
             *self.__generate_copy_files_commands(),
             f"ln -sfv vmlinuz-{guessed_kernel_version} $CRAFT_PART_BUILD/uc-initramfs-build/boot/kernel.img",
-            "snap connect ubuntu-core-initramfs:dracut-support",
             # The sysroot tar is a base root without the ubuntu-core-initramfs
             # package, so create-initrd finds no skeleton and builds an empty
             # image. Mount the skeleton from the snap into the root first.
@@ -313,10 +317,6 @@ class InitrdPlugin(plugins.Plugin):
         commands = [
             *self.__generate_copy_files_commands(),
             f"ln -sfv vmlinuz-{guessed_kernel_version} $CRAFT_PART_BUILD/uc-initramfs-build/boot/kernel.img",
-            "snap connect dracut:mount-observe",
-            "snap connect dracut:hardware-observe",
-            "snap connect dracut:system-backup",
-            "snap connect dracut:dracut-support",
             "touch $CRAFT_PART_BUILD/uc-initramfs-build/boot/empty.bmp",
             'cp -ar "/snap/dracut/current/lib/dracut" "$CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/"',
             dracut_command,
