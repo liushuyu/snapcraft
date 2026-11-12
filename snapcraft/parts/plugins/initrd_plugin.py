@@ -307,11 +307,12 @@ class InitrdPlugin(plugins.Plugin):
                 ]
             )
         else:
-            commands.append(
-                f"cp -v $CRAFT_PART_BUILD/uc-initramfs-build/boot/initrd.img-{guessed_kernel_version} $CRAFT_PART_INSTALL/boot/"
-            )
-            commands.append(
-                f"ln -sfv initrd.img-{guessed_kernel_version} $CRAFT_PART_INSTALL/boot/initrd.img"
+            commands.extend(
+                [
+                    f"cp -v $CRAFT_PART_BUILD/uc-initramfs-build/boot/initrd.img-{guessed_kernel_version} $CRAFT_PART_INSTALL/boot/",
+                    f"ln -sfv initrd.img-{guessed_kernel_version} $CRAFT_PART_INSTALL/boot/initrd.img",
+                    f"ln -sfv boot/initrd.img-{guessed_kernel_version} $CRAFT_PART_INSTALL/initrd.img",
+                ]
             )
         return commands
 
