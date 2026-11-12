@@ -30,7 +30,7 @@ class KernelConfigBuildKconfig:
     defconfig: NonEmptyString | None = None
     override_file: NonEmptyString | None = None
     override_options: ConfigOptions = Field(default_factory=dict)
-    tools_to_build: UniqueList[Annotated[str, KernelTools]] = Field(
+    tools_to_build: UniqueList[KernelTools] = Field(
         default_factory=lambda: sorted(VALID_KERNEL_TOOLS)
     )
 

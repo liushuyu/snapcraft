@@ -10,10 +10,6 @@
 {% include 'kernel_macros.sh.j2' %}
 env
 
-{# Clean the install directory (for use when user is doing repeated builds) #}
-rm -rf {{ craft_part_install_dir }}
-mkdir -pv {{ craft_part_install_dir }}
-
 mkdir -pv {{ craft_part_build_dir }}/kernel
 # Get source deb packages into build arena
 {% if ubuntu_kernel_use_binary_package %}
@@ -32,7 +28,7 @@ cd {{ craft_part_build_dir }}/kernel-src
 source debian/debian.env
 
 {% if is_cross_compiling %}
-    export "$(dpkg-architecture -a{{ target_arch }})"
+    export $(dpkg-architecture -a{{ target_arch }})
 {% endif %}
 
 {% set ubuntu_kernel_tools = [] %}
@@ -41,7 +37,7 @@ source debian/debian.env
 {% endif %}
 {% if ubuntu_kernel_tools|length > 0 %}
     echo "Updating kernel tools selection"
-    sed -i 's/^\\s*do_tools_\\(.*\\)\\s*=.*/do_tools_\\1 = false/g' \
+    sed -i 's/^\s*do_tools_\(.*\)\s*=.*/do_tools_\1 = false/g' \
         debian.master/rules.d/{{ target_arch }}.mk
     {% for tool in ubuntu_kernel_tools %}
         sed -i 's/^\s*do_tools_{{ tool }}\s*=.*/do_tools_{{ tool }} = true/g' \
@@ -73,6 +69,8 @@ source debian/debian.env
 
 if [[ "$UID" = '0' ]]; then
     FAKEROOT=""
+else
+    FAKEROOT="fakeroot"
 fi
 $FAKEROOT debian/rules clean
 # This fails due to a change in the config, which is expected.
