@@ -237,15 +237,15 @@ class InitrdPlugin(plugins.Plugin):
         ]
         for module in self.options.initrd_config.kernel_modules:
             commands.append(
-                f"cp --reflink=auto -arT {module} $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/modules/{guessed_kernel_version}/"
+                f"cp --reflink=auto -arT -- {module} $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/modules/{guessed_kernel_version}/"
             )
         for firmware in self.options.initrd_config.firmware:
             commands.append(
-                f"cp --reflink=auto -arT {firmware} $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/firmware/"
+                f"cp --reflink=auto -arT -- {firmware} $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/firmware/"
             )
         for file in self.options.initrd_config.extra_files:
             commands.append(
-                f"cp --reflink=auto -arT {file} $CRAFT_PART_BUILD/uc-initramfs-build/"
+                f"cp --reflink=auto -arT -- {file} $CRAFT_PART_BUILD/uc-initramfs-build/"
             )
         return commands
 
@@ -307,6 +307,8 @@ class InitrdPlugin(plugins.Plugin):
             dracut_command += f" --uefi --ukify --uefi-stub /usr/lib/systemd/boot/efi/{stub_name} --kernel-image $CRAFT_PART_BUILD/uc-initramfs-build/boot/kernel.img"
             # FIXME: dracut currently has a bug where if the splash image is not specified, it will "invent" a path for the splash image. This is a workaround until dracut is fixed.
             dracut_command += " --uefi-splash-image $CRAFT_PART_BUILD/uc-initramfs-build/boot/empty.bmp"
+            # Include Ubuntu Core factory files
+            dracut_command += " -i /usr/lib/ubuntu-core-initramfs/main /"
             dracut_command = (
                 f"uefi_secureboot_key={signing.key} uefi_secureboot_cert={signing.cert} "
                 + dracut_command
