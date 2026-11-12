@@ -194,7 +194,7 @@ class KernelPlugin(plugins.Plugin):
 
         if is_binary_repack and not self.options.kernel_build_config.extra_modules:
             # if we are just re-packing a binary package, we only need the tools to extract and repack the deb
-            return {"dpkg-dev", "fakeroot", "rsync", "kmod"}
+            return {"dpkg-dev", "fakeroot", "rsync", "kmod", "findutils"}
 
         if base_number >= 23:
             base_packages |= {
