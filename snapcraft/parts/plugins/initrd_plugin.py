@@ -197,8 +197,8 @@ class InitrdPlugin(plugins.Plugin):
     @override
     def get_build_snaps(self) -> set[str]:
         # return {
-            # "ubuntu-core-initramfs",
-            # "dracut",
+        # "ubuntu-core-initramfs",
+        # "dracut",
         # }
         return set()
 
@@ -212,6 +212,7 @@ class InitrdPlugin(plugins.Plugin):
             "binutils-multiarch",
             "squashfs-tools",
             "fakeroot",
+            "findutils",
         }
 
         # if running as non-root and cross-building we need libfake{ch}root for
@@ -227,6 +228,21 @@ class InitrdPlugin(plugins.Plugin):
     def get_build_environment(self) -> dict[str, str]:
         return {}
 
+    @staticmethod
+    def __generate_copy_commands(from_list: list[str], to_path: str) -> list[str]:
+        """Generate copy commands for the given source list and destination path.
+
+        The copy commands generated will copy all the contents under the specified
+        directories to the destination path specified by `to_path`. Non-directories
+        will be copied into the destination path specified by `to_path`.
+        """
+        if not from_list:
+            return []
+        return [
+            f"find {' '.join(from_list)} -type d -exec cp --reflink=auto -arT -- {{}} {to_path} +",
+            f"find {' '.join(from_list)} -not -type d -exec cp --reflink=auto -ar -t {to_path} {{}} +",
+        ]
+
     def __generate_copy_files_commands(self) -> list[str]:
         guessed_kernel_version = self.guessed_kernel_version
         commands = [
@@ -234,19 +250,20 @@ class InitrdPlugin(plugins.Plugin):
             "mkdir -p $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/firmware/",
             "install -Dvm644 $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/snapd/info $CRAFT_PART_INSTALL/snapd-info",
             f"cp --reflink=auto --dereference $CRAFT_STAGE/kernel.img $CRAFT_PART_BUILD/uc-initramfs-build/boot/vmlinuz-{guessed_kernel_version}",
+            *InitrdPlugin.__generate_copy_commands(
+                self.options.initrd_config.kernel_modules,
+                f"$CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/modules/{guessed_kernel_version}/",
+            ),
+            *InitrdPlugin.__generate_copy_commands(
+                self.options.initrd_config.firmware,
+                "$CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/firmware/",
+            ),
+            *InitrdPlugin.__generate_copy_commands(
+                self.options.initrd_config.extra_files,
+                "$CRAFT_PART_BUILD/uc-initramfs-build/",
+            ),
         ]
-        for module in self.options.initrd_config.kernel_modules:
-            commands.append(
-                f"cp --reflink=auto -arT -- {module} $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/modules/{guessed_kernel_version}/"
-            )
-        for firmware in self.options.initrd_config.firmware:
-            commands.append(
-                f"cp --reflink=auto -arT -- {firmware} $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/firmware/"
-            )
-        for file in self.options.initrd_config.extra_files:
-            commands.append(
-                f"cp --reflink=auto -arT -- {file} $CRAFT_PART_BUILD/uc-initramfs-build/"
-            )
+
         return commands
 
     def __get_systemd_efi_stub_name(self) -> str:
