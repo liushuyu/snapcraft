@@ -239,8 +239,8 @@ class InitrdPlugin(plugins.Plugin):
         if not from_list:
             return []
         return [
-            f"find {' '.join(from_list)} -type d -exec cp --reflink=auto -arT -- {{}} {to_path} +",
-            f"find {' '.join(from_list)} -not -type d -exec cp --reflink=auto -ar -t {to_path} {{}} +",
+            f"find {' '.join(from_list)} -type d -exec cp --reflink=auto -arT -- '{{}}' {to_path} ';'",
+            f"find {' '.join(from_list)} -not -type d -exec cp --reflink=auto -ar -t {to_path} '{{}}' +",
         ]
 
     def __generate_copy_files_commands(self) -> list[str]:
@@ -302,16 +302,16 @@ class InitrdPlugin(plugins.Plugin):
                     f"mount --bind -r {signing.key} $CRAFT_PART_BUILD/uc-initramfs-build/etc/uci-signing.key",
                     f"mount --bind -r {signing.cert} $CRAFT_PART_BUILD/uc-initramfs-build/etc/uci-signing.crt",
                     f"ubuntu-core-initramfs create-efi --kernelver={guessed_kernel_version} --root $CRAFT_PART_BUILD/uc-initramfs-build --stub /usr/lib/systemd/boot/efi/{stub_name} --initrd /boot/initrd.img --kernel /boot/vmlinuz --output /boot/kernel.efi --key /etc/uci-signing.key --cert /etc/uci-signing.crt",
-                    f"install -Dvm755 $CRAFT_PART_BUILD/uc-initramfs-build/boot/kernel.efi-{guessed_kernel_version} $CRAFT_PART_INSTALL/kernel.efi-{guessed_kernel_version}",
-                    f"ln -sfv kernel.efi-{guessed_kernel_version} $CRAFT_PART_INSTALL/kernel.efi",
+                    f"install -Dvm755 $CRAFT_PART_BUILD/uc-initramfs-build/boot/kernel.efi-{guessed_kernel_version} $CRAFT_PART_INSTALL/kernel.efi",
+                    f"ln -sfv kernel.efi $CRAFT_PART_INSTALL/kernel.efi-{guessed_kernel_version}",
                 ]
             )
         else:
             commands.extend(
                 [
-                    f"cp -v $CRAFT_PART_BUILD/uc-initramfs-build/boot/initrd.img-{guessed_kernel_version} $CRAFT_PART_INSTALL/boot/",
-                    f"ln -sfv initrd.img-{guessed_kernel_version} $CRAFT_PART_INSTALL/boot/initrd.img",
-                    f"ln -sfv boot/initrd.img-{guessed_kernel_version} $CRAFT_PART_INSTALL/initrd.img",
+                    f"cp -v $CRAFT_PART_BUILD/uc-initramfs-build/boot/initrd.img-{guessed_kernel_version} $CRAFT_PART_INSTALL/initrd.img",
+                    f"ln -sfv ../initrd.img-{guessed_kernel_version} $CRAFT_PART_INSTALL/boot/initrd.img",
+                    f"ln -sfv initrd.img $CRAFT_PART_INSTALL/initrd.img-{guessed_kernel_version}",
                 ]
             )
         return commands
