@@ -81,6 +81,7 @@ from pydantic import Discriminator, Field, StringConstraints
 from pydantic.dataclasses import dataclass
 from typing_extensions import override
 
+KernelModuleName = Annotated[str, StringConstraints(pattern=r"^[a-z0-9\-_]+$", strict=True)]
 NonEmptyString = Annotated[str, StringConstraints(min_length=1, strict=True)]
 INITRD_RELEASE_FROM_SNAP_BASE = {
     "core20": "focal",
@@ -92,11 +93,12 @@ INITRD_RELEASE_FROM_SNAP_BASE = {
 
 @dataclass(slots=True, config=plugins.PluginProperties.model_config)
 class InitrdConfigBase:
-    kernel_modules: list[str] = Field(
+    kernel_modules: list[str] | None = Field(
         min_length=1, default_factory=list, examples=["modules/6.8.0-134-generic"]
     )
     build_backend: Literal["dracut", "u-c-i"] = "dracut"
     firmware: list[str] = Field(default_factory=list)
+    kernel_modules_to_include: list[KernelModuleName] = Field(default_factory=list)
     extra_files: list[str] = Field(default_factory=list)
 
 
@@ -245,7 +247,7 @@ class InitrdPlugin(plugins.Plugin):
         return result
 
     @staticmethod
-    def __generate_copy_commands(from_list: list[str], to_path: str) -> list[str]:
+    def __generate_copy_commands(from_list: list[str] | None, to_path: str) -> list[str]:
         """Generate copy commands for the given source list and destination path.
 
         The copy commands generated will copy all the contents under the specified
@@ -319,6 +321,15 @@ class InitrdPlugin(plugins.Plugin):
             "mount --bind -r /snap/ubuntu-core-initramfs/current/usr/lib/ubuntu-core-initramfs $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/ubuntu-core-initramfs",
             f"ubuntu-core-initramfs create-initrd --kernelver={guessed_kernel_version} --root $CRAFT_PART_BUILD/uc-initramfs-build --output /boot/initrd.img",
         ]
+        if self.options.initrd_config.kernel_modules_to_include:
+            with open(self._part_info.part_state_dir / "extra-modules", "w") as f:
+                f.write("\n".join(self.options.initrd_config.kernel_modules_to_include))
+            commands.extend([
+                "cat /snap/ubuntu-core-initramfs/current/usr/lib/ubuntu-core-initramfs/modules/main/extra-modules.conf "
+                f"{self._part_info.part_state_dir / 'extra-modules'} > /tmp/extra-modules.conf",
+                "umount $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/ubuntu-core-initramfs/modules/main/extra-modules.conf || true",
+                "mount --bind -r /tmp/extra-modules.conf $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/ubuntu-core-initramfs/modules/main/extra-modules.conf"
+            ])
         if self.options.initrd_config.image_type == "efi":
             signing = self.options.initrd_config.signing
             stub_name = self.__get_systemd_efi_stub_name()
@@ -346,6 +357,9 @@ class InitrdPlugin(plugins.Plugin):
     def __generate_build_commands_dracut(self) -> list[str]:
         guessed_kernel_version = self.guessed_kernel_version
         dracut_command = f'dracut -v --enhanced-cpio --force --kver "{guessed_kernel_version}" -a busybox --no-hostonly -r $CRAFT_PART_BUILD/uc-initramfs-build'
+        if self.options.initrd_config.kernel_modules_to_include:
+            modules_list = " ".join(self.options.initrd_config.kernel_modules_to_include)
+            dracut_command += f' -m "{modules_list}"'
         if self.options.initrd_config.image_type == "efi":
             signing = self.options.initrd_config.signing
             stub_name = self.__get_systemd_efi_stub_name()
