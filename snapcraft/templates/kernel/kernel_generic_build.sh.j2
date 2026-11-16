@@ -262,6 +262,7 @@ for t in "${TOOLS_TO_BUILD[@]}"; do
 done
 
 eval "$(echo 'KERNEL_ABI=UTS_RELEASE' | gcc -E -include "${CRAFT_PART_BUILD}/include/generated/utsrelease.h" -P -)"
+echo "${KERNEL_ABI}" > {{ craft_part_state_dir }}/kernel-abi
 
 {% from 'kernel_macros.sh.j2' import generate_dkms_wrapper with context %}
 {% for dkms_module, _ in config.extra_modules.items() %}
