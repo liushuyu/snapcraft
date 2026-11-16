@@ -122,6 +122,7 @@ class InitrdPluginProperties(plugins.PluginProperties, frozen=True):
 
     plugin: Literal["initrd"] = "initrd"
 
+    after: list[str] = Field(default_factory=list)
     initrd_config: Annotated[
         InitrdConfigRawImage | InitrdConfigEFI, Discriminator("image_type")
     ] = InitrdConfigRawImage()
@@ -137,6 +138,15 @@ class InitrdPlugin(plugins.Plugin):
     ) -> None:
         super().__init__(properties=properties, part_info=part_info)
         self.options = cast(InitrdPluginProperties, self._options)
+
+        if self.options.after:
+            if len(self.options.after) > 1:
+                raise ValueError(
+                    "The 'after' property can only contain one element for the initrd plugin."
+                    "Because initrd is closely tied to a specific kernel version, it can only depend on one other part."
+                )
+            self.guessed_kernel_version = "${KERNEL_ABI}"
+            return
 
         if not self.options.initrd_config.kernel_modules:
             raise ValueError(
@@ -226,7 +236,13 @@ class InitrdPlugin(plugins.Plugin):
 
     @override
     def get_build_environment(self) -> dict[str, str]:
-        return {}
+        result = {}
+        _kernel_part = self.options.after[0] if self.options.after else None
+        if _kernel_part:
+            result["KERNEL_ABI"] = (
+                f"$(cat {self._part_info.part_state_dir}/../../{_kernel_part}/state/kernel-abi)"
+            )
+        return result
 
     @staticmethod
     def __generate_copy_commands(from_list: list[str], to_path: str) -> list[str]:
@@ -239,17 +255,18 @@ class InitrdPlugin(plugins.Plugin):
         if not from_list:
             return []
         return [
-            f"find {' '.join(from_list)} -type d -exec cp --reflink=auto -arT -- '{{}}' {to_path} ';'",
-            f"find {' '.join(from_list)} -not -type d -exec cp --reflink=auto -ar -t {to_path} '{{}}' +",
+            f"copy_unnested {' '.join(from_list)} {to_path}",
         ]
 
     def __generate_copy_files_commands(self) -> list[str]:
         guessed_kernel_version = self.guessed_kernel_version
+        is_implied_kernel_version = guessed_kernel_version.startswith("$")
         commands = [
             f"mkdir -p $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/modules/{guessed_kernel_version}/",
             "mkdir -p $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/firmware/",
             "install -Dvm644 $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/snapd/info $CRAFT_PART_INSTALL/snapd-info",
             f"cp --reflink=auto --dereference $CRAFT_STAGE/kernel.img $CRAFT_PART_BUILD/uc-initramfs-build/boot/vmlinuz-{guessed_kernel_version}",
+            'copy_unnested() { local dest="${@:$#}"; local srcs=("${@:1:$#-1}"); find "${srcs[@]}" -maxdepth 0 -type d -exec cp --reflink=auto -arT -- "{}" "$dest" ";" -o -not -type d -exec cp --reflink=auto -ar -t "$dest" "{}" +; }',
             *InitrdPlugin.__generate_copy_commands(
                 self.options.initrd_config.kernel_modules,
                 f"$CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/modules/{guessed_kernel_version}/",
@@ -263,6 +280,16 @@ class InitrdPlugin(plugins.Plugin):
                 "$CRAFT_PART_BUILD/uc-initramfs-build/",
             ),
         ]
+        if is_implied_kernel_version:
+            default_module_path = f"$CRAFT_STAGE/modules/{guessed_kernel_version}/"
+            commands.insert(0, f"if [ -z {guessed_kernel_version} ]; then echo 'Kernel version is not set' && exit 1; fi")
+            commands.insert(
+                1,
+                f"if ! test -d {default_module_path}; then echo 'Default module path not found: {default_module_path}' && exit 1; fi",
+            )
+            commands.append(
+                f"copy_unnested {default_module_path} $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/modules/{guessed_kernel_version}/"
+            )
 
         return commands
 
