@@ -147,7 +147,7 @@ class InitrdPlugin(plugins.Plugin):
                     "The 'after' property can only contain one element for the initrd plugin."
                     "Because initrd is closely tied to a specific kernel version, it can only depend on one other part."
                 )
-            self.guessed_kernel_version = "${KERNEL_ABI}"
+            self.guessed_kernel_version = "${KERNEL_ABI}-${KERNEL_ABI_FLAVOUR}"
             return
 
         if not self.options.initrd_config.kernel_modules:
@@ -243,6 +243,9 @@ class InitrdPlugin(plugins.Plugin):
         if _kernel_part:
             result["KERNEL_ABI"] = (
                 f"$(cat {self._part_info.part_state_dir}/../../{_kernel_part}/state/kernel-abi)"
+            )
+            result["KERNEL_ABI_FLAVOUR"] = (
+                f"$(cat {self._part_info.part_state_dir}/../../{_kernel_part}/state/kernel-abi-flavour)"
             )
         return result
 
