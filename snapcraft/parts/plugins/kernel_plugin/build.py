@@ -89,10 +89,10 @@ def get_default_image_targets_for_arch(arch: str) -> list[str]:
 def _get_current_base_release(config: KernelBuildConfig, base_name: str) -> str:
     auto_detected_release = UBUNTU_RELEASE_FROM_SNAP_BASE.get(base_name)
     if config.build_type in {"generic-tree", "binary-repack"}:
-        result = getattr(config, "ubuntu_release_name", auto_detected_release)
+        result = getattr(config, "ubuntu_release_name", None) or auto_detected_release
         if not result:
             raise ValueError(
-                f"Unable to determine Ubuntu release name for base {base_name!r}. Please specify ubuntu_release_name in the kernel build config."
+                f"Unable to determine Ubuntu release name for base {base_name!r}. Please specify ubuntu-release-name in the kernel build config."
             )
         return result
     if config.build_type == "ubuntu-tree":
