@@ -185,6 +185,7 @@ class KernelPlugin(plugins.Plugin):
             "openssl",
             "libssl-dev",
             f"libssl-dev:{target_arch}",
+            "libdw-dev",
             "lz4",
             "rsync",
             "systemd",

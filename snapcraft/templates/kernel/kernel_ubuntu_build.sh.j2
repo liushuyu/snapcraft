@@ -26,6 +26,7 @@ rsync -aH {{ craft_part_src_dir }}/ {{ craft_part_build_dir }}/kernel-src
 cd {{ craft_part_build_dir }}/kernel-src
 
 source debian/debian.env
+DEBIAN="${DEBIAN:-debian.master}"
 
 {% if is_cross_compiling %}
     export $(dpkg-architecture -a{{ target_arch }})
@@ -38,10 +39,10 @@ source debian/debian.env
 {% if ubuntu_kernel_tools|length > 0 %}
     echo "Updating kernel tools selection"
     sed -i 's/^\s*do_tools_\(.*\)\s*=.*/do_tools_\1 = false/g' \
-        debian.master/rules.d/{{ target_arch }}.mk
+        "${DEBIAN}"/rules.d/{{ target_arch }}.mk
     {% for tool in ubuntu_kernel_tools %}
         sed -i 's/^\s*do_tools_{{ tool }}\s*=.*/do_tools_{{ tool }} = true/g' \
-            debian.master/rules.d/{{ target_arch }}.mk
+            "${DEBIAN}"/rules.d/{{ target_arch }}.mk
     {% endfor %}
 {% endif %}
 
@@ -50,10 +51,10 @@ source debian/debian.env
     echo "Updating build target image"
     sed -i \
         's/^\s*build_image.*/build_image = {{ config.image_targets|join(' ') }}/g' \
-        debian.master/rules.d/{{ target_arch }}.mk
+        "${DEBIAN}"/rules.d/{{ target_arch }}.mk
     sed -i \
         's|^\s*kernel_file.*|kernel_file = arch/{{ kernel_arch }}/boot/{{ config.image_targets[0] }}|g' \
-        debian.master/rules.d/{{ target_arch }}.mk
+        "${DEBIAN}"/rules.d/{{ target_arch }}.mk
 {% endif %}
 
 {% set has_ubuntu_kernel_config_fragments = config.overrides.override_file or config.overrides.override_options %}
@@ -93,19 +94,27 @@ mv -v {{ craft_part_build_dir }}/*.deb {{ craft_part_build_dir}}/kernel
 cd {{ craft_part_build_dir }}/kernel
 
 {% if ubuntu_kernel_use_binary_package %}
-    dpkg-deb -x linux-image-*-{{ ubuntu_kernel_flavor }}_*.deb unpacked-linux-image
+    KERNEL_ABI="$(cat {{ craft_part_state_dir }}/kernel-abi)"
+    KERNEL_ABI_FLAVOUR="$(cat {{ craft_part_state_dir }}/kernel-abi-flavour)"
+    dpkg-deb -x linux-image-"${KERNEL_ABI}"-*_*.deb unpacked-linux-image
+    find . -name 'linux-firmware*.deb' -maxdepth 1 -type f \
+        -exec dpkg-deb -x '{}' unpacked-linux-firmware ';'
+    PKGS=(linux-modules*-"${KERNEL_ABI}"-*_*.deb)
 {% else %}
+    KERNEL_ABI="$(dpkg-deb -f linux-modules-*-{{ ubuntu_kernel_flavor }}_*.deb Version | perl -ne '/(\d+\.\d+\.\d+).(\d+).*/ && print "$1-$2\n"')"
+    KERNEL_ABI_FLAVOUR={{ ubuntu_kernel_flavor | escape_shell_word }}
+    echo "${KERNEL_ABI}" > {{ craft_part_state_dir }}/kernel-abi
+    echo "${KERNEL_ABI_FLAVOUR}" > {{ craft_part_state_dir }}/kernel-abi-flavour
     # Source builds are not signed yet
-    dpkg-deb -x linux-image-unsigned-*-{{ ubuntu_kernel_flavor }}_*.deb unpacked-linux-image
+    find . -maxdepth 1 -type f \
+        '(' -name 'linux-image-unsigned-*-{{ ubuntu_kernel_flavor }}_*.deb' -or -name 'linux-image-*-{{ ubuntu_kernel_flavor }}_*.deb' ')' \
+        -exec 'dpkg-deb' '-x' '{}' unpacked-linux-image ';'
+    PKGS=(linux-modules-*-{{ ubuntu_kernel_flavor }}_*.deb)
 {% endif %}
 
-PKGS=(linux-modules-*-{{ ubuntu_kernel_flavor }}_*.deb)
 for i in "${PKGS[@]}"; do
     dpkg-deb -x "$i" unpacked-linux-modules
 done
-
-KERNEL_ABI="$(dpkg-deb -f linux-modules-*-{{ ubuntu_kernel_flavor }}_*.deb Version | perl -ne '/(\d+\.\d+\.\d+).(\d+).*/ && print "$1-$2\n"')"
-echo "${KERNEL_ABI}" > {{ craft_part_state_dir }}/kernel-abi
 
 # Unpack the linux deb binaries to snap package structure
 mv -v unpacked-linux-image/* {{ craft_part_install_dir }}
@@ -135,15 +144,15 @@ ln -sv {{ module_path|escape_shell_word }} {{ module_path|escape_shell_word }}-0
 )
 {% endfor %}
 
-depmod -b {{ craft_part_install_dir }} "${KERNEL_ABI}"-{{ ubuntu_kernel_flavor }}
+depmod -b {{ craft_part_install_dir }} "${KERNEL_ABI}"-"${KERNEL_ABI_FLAVOUR}"
 
 # Manipulate stock kernel layout to the snapcraft package layout.
 mv -v {{ craft_part_install_dir }}/boot/* {{ craft_part_install_dir }}/
-ln -fv {{ craft_part_install_dir }}/vmlinuz-"${KERNEL_ABI}"-{{ ubuntu_kernel_flavor }} {{ craft_part_install_dir }}/kernel.img
+ln -fv {{ craft_part_install_dir }}/vmlinuz-"${KERNEL_ABI}"-"${KERNEL_ABI_FLAVOUR}" {{ craft_part_install_dir }}/kernel.img
 mv -v {{ craft_part_install_dir }}/lib/modules {{ craft_part_install_dir }}/
 
 # Device tree
-DTBS=unpacked-linux-modules/lib/firmware/"${KERNEL_ABI}"-{{ ubuntu_kernel_flavor }}/device-tree
+DTBS=unpacked-linux-modules/lib/firmware/"${KERNEL_ABI}"-"${KERNEL_ABI_FLAVOUR}"/device-tree
 [ -d "${DTBS}" ] && mv -v "${DTBS}" {{ craft_part_install_dir }}/dtbs
 
 # Firmware
