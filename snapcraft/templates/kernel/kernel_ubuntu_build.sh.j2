@@ -104,6 +104,7 @@ cd {{ craft_part_build_dir }}/kernel
     KERNEL_ABI="$(dpkg-deb -f linux-modules-*-{{ ubuntu_kernel_flavor }}_*.deb Version | perl -ne '/(\d+\.\d+\.\d+).(\d+).*/ && print "$1-$2\n"')"
     KERNEL_ABI_FLAVOUR={{ ubuntu_kernel_flavor | escape_shell_word }}
     echo "${KERNEL_ABI}" > {{ craft_part_state_dir }}/kernel-abi
+    echo "${KERNEL_ABI_FLAVOUR}" > {{ craft_part_state_dir }}/kernel-abi-flavour
     # Source builds are not signed yet
     dpkg-deb -x linux-image-unsigned-*-{{ ubuntu_kernel_flavor }}_*.deb unpacked-linux-image
     PKGS=(linux-modules-*-{{ ubuntu_kernel_flavor }}_*.deb)
