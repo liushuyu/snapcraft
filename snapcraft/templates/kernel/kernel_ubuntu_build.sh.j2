@@ -16,6 +16,7 @@ env
 rm -rf {{ craft_part_install_dir }}/boot {{ craft_part_install_dir }}/modules \
     {{ craft_part_install_dir }}/lib/modules {{ craft_part_install_dir }}/dtbs \
     {{ craft_part_install_dir }}/kernel.img {{ craft_part_install_dir }}/vmlinuz-* \
+    {{ craft_part_install_dir }}/vmlinux-* \
     {{ craft_part_install_dir }}/System.map-* {{ craft_part_install_dir }}/config-*
 
 mkdir -pv {{ craft_part_build_dir }}/kernel
@@ -107,7 +108,14 @@ cd {{ craft_part_build_dir }}/kernel
     dpkg-deb -x linux-image-"${KERNEL_ABI}"-*_*.deb unpacked-linux-image
     find . -name 'linux-firmware*.deb' -maxdepth 1 -type f \
         -exec dpkg-deb -x '{}' unpacked-linux-firmware ';'
-    PKGS=(linux-modules*-"${KERNEL_ABI}"-*_*.deb)
+    PKGS=()
+    for package in \
+        linux-modules*-"${KERNEL_ABI}"-*_*.deb \
+        linux-main-modules*-"${KERNEL_ABI}"-*_*.deb; do
+        if test -f "${package}"; then
+            PKGS+=("${package}")
+        fi
+    done
 {% else %}
     KERNEL_ABI="$(dpkg-deb -f linux-modules-*-{{ ubuntu_kernel_flavor }}_*.deb Version | perl -ne '/(\d+\.\d+\.\d+).(\d+).*/ && print "$1-$2\n"')"
     KERNEL_ABI_FLAVOUR={{ ubuntu_kernel_flavor | escape_shell_word }}
@@ -158,7 +166,15 @@ depmod -b {{ craft_part_install_dir }} "${KERNEL_ABI}"-"${KERNEL_ABI_FLAVOUR}"
 
 # Manipulate stock kernel layout to the snapcraft package layout.
 mv -v {{ craft_part_install_dir }}/boot/* {{ craft_part_install_dir }}/
-ln -fv {{ craft_part_install_dir }}/vmlinuz-"${KERNEL_ABI}"-"${KERNEL_ABI_FLAVOUR}" {{ craft_part_install_dir }}/kernel.img
+KERNEL_IMAGE={{ craft_part_install_dir }}/vmlinuz-"${KERNEL_ABI}"-"${KERNEL_ABI_FLAVOUR}"
+if ! test -f "${KERNEL_IMAGE}"; then
+    KERNEL_IMAGE={{ craft_part_install_dir }}/vmlinux-"${KERNEL_ABI}"-"${KERNEL_ABI_FLAVOUR}"
+fi
+if ! test -f "${KERNEL_IMAGE}"; then
+    echo "Kernel image not found for ${KERNEL_ABI}-${KERNEL_ABI_FLAVOUR}"
+    exit 1
+fi
+ln -fv "${KERNEL_IMAGE}" {{ craft_part_install_dir }}/kernel.img
 mv -v {{ craft_part_install_dir }}/lib/modules {{ craft_part_install_dir }}/
 
 # Ubuntu ships device trees in the linux-modules package, under
