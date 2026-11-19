@@ -81,7 +81,9 @@ from pydantic import Discriminator, Field, StringConstraints
 from pydantic.dataclasses import dataclass
 from typing_extensions import override
 
-KernelModuleName = Annotated[str, StringConstraints(pattern=r"^[a-z0-9\-_]+$", strict=True)]
+KernelModuleName = Annotated[
+    str, StringConstraints(pattern=r"^[a-z0-9\-_]+$", strict=True)
+]
 NonEmptyString = Annotated[str, StringConstraints(min_length=1, strict=True)]
 INITRD_RELEASE_FROM_SNAP_BASE = {
     "core20": "focal",
@@ -250,7 +252,9 @@ class InitrdPlugin(plugins.Plugin):
         return result
 
     @staticmethod
-    def __generate_copy_commands(from_list: list[str] | None, to_path: str) -> list[str]:
+    def __generate_copy_commands(
+        from_list: list[str] | None, to_path: str
+    ) -> list[str]:
         """Generate copy commands for the given source list and destination path.
 
         The copy commands generated will copy all the contents under the specified
@@ -287,7 +291,10 @@ class InitrdPlugin(plugins.Plugin):
         ]
         if is_implied_kernel_version:
             default_module_path = f"$CRAFT_STAGE/modules/{guessed_kernel_version}/"
-            commands.insert(0, f"if [ -z {guessed_kernel_version} ]; then echo 'Kernel version is not set' && exit 1; fi")
+            commands.insert(
+                0,
+                f"if [ -z {guessed_kernel_version} ]; then echo 'Kernel version is not set' && exit 1; fi",
+            )
             commands.insert(
                 1,
                 f"if ! test -d {default_module_path}; then echo 'Default module path not found: {default_module_path}' && exit 1; fi",
@@ -327,12 +334,14 @@ class InitrdPlugin(plugins.Plugin):
         if self.options.initrd_config.kernel_modules_to_include:
             with open(self._part_info.part_state_dir / "extra-modules", "w") as f:
                 f.write("\n".join(self.options.initrd_config.kernel_modules_to_include))
-            commands.extend([
-                "cat /snap/ubuntu-core-initramfs/current/usr/lib/ubuntu-core-initramfs/modules/main/extra-modules.conf "
-                f"{self._part_info.part_state_dir / 'extra-modules'} > /tmp/extra-modules.conf",
-                "umount $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/ubuntu-core-initramfs/modules/main/extra-modules.conf || true",
-                "mount --bind -r /tmp/extra-modules.conf $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/ubuntu-core-initramfs/modules/main/extra-modules.conf"
-            ])
+            commands.extend(
+                [
+                    "cat /snap/ubuntu-core-initramfs/current/usr/lib/ubuntu-core-initramfs/modules/main/extra-modules.conf "
+                    f"{self._part_info.part_state_dir / 'extra-modules'} > /tmp/extra-modules.conf",
+                    "umount $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/ubuntu-core-initramfs/modules/main/extra-modules.conf || true",
+                    "mount --bind -r /tmp/extra-modules.conf $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/ubuntu-core-initramfs/modules/main/extra-modules.conf",
+                ]
+            )
         if self.options.initrd_config.image_type == "efi":
             signing = self.options.initrd_config.signing
             stub_name = self.__get_systemd_efi_stub_name()
@@ -361,7 +370,9 @@ class InitrdPlugin(plugins.Plugin):
         guessed_kernel_version = self.guessed_kernel_version
         dracut_command = f'dracut -v --enhanced-cpio --force --kver "{guessed_kernel_version}" -a busybox --no-hostonly -r $CRAFT_PART_BUILD/uc-initramfs-build'
         if self.options.initrd_config.kernel_modules_to_include:
-            modules_list = " ".join(self.options.initrd_config.kernel_modules_to_include)
+            modules_list = " ".join(
+                self.options.initrd_config.kernel_modules_to_include
+            )
             dracut_command += f' -m "{modules_list}"'
         if self.options.initrd_config.image_type == "efi":
             signing = self.options.initrd_config.signing
