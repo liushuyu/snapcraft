@@ -85,6 +85,15 @@ KernelModuleName = Annotated[
     str, StringConstraints(pattern=r"^[a-z0-9\-_]+$", strict=True)
 ]
 NonEmptyString = Annotated[str, StringConstraints(min_length=1, strict=True)]
+_DRACUT_UC_HELPERS = (
+    "/usr/bin/mount",
+    "/usr/bin/mountpoint",
+    "/usr/bin/touch",
+    "/usr/bin/chroot",
+    "/usr/bin/systemd-mount",
+    "/usr/bin/unsquashfs",
+    "/usr/lib/snapd/snap-bootstrap",
+)
 INITRD_RELEASE_FROM_SNAP_BASE = {
     "core20": "focal",
     "core22": "jammy",
@@ -372,7 +381,7 @@ class InitrdPlugin(plugins.Plugin):
 
     def __generate_build_commands_dracut(self) -> list[str]:
         guessed_kernel_version = self.guessed_kernel_version
-        dracut_command = f'dracut -v --enhanced-cpio --force --kver "{guessed_kernel_version}" -a busybox --no-hostonly -r $CRAFT_PART_BUILD/uc-initramfs-build'
+        dracut_command = f'dracut -v --enhanced-cpio --force --kver "{guessed_kernel_version}" -o busybox --no-hostonly -r $CRAFT_PART_BUILD/uc-initramfs-build'
         if self.options.initrd_config.kernel_modules_to_include:
             modules_list = " ".join(
                 self.options.initrd_config.kernel_modules_to_include
@@ -384,19 +393,39 @@ class InitrdPlugin(plugins.Plugin):
             dracut_command += f" --uefi --ukify --uefi-stub /usr/lib/systemd/boot/efi/{stub_name} --kernel-image $CRAFT_PART_BUILD/uc-initramfs-build/boot/kernel.img"
             # FIXME: dracut currently has a bug where if the splash image is not specified, it will "invent" a path for the splash image. This is a workaround until dracut is fixed.
             dracut_command += " --uefi-splash-image $CRAFT_PART_BUILD/uc-initramfs-build/boot/empty.bmp"
-            # Include Ubuntu Core factory files
-            dracut_command += " -i /usr/lib/ubuntu-core-initramfs/main /"
             dracut_command = (
                 f"uefi_secureboot_key={signing.key} uefi_secureboot_cert={signing.cert} "
                 + dracut_command
             )
+        # Ubuntu Core needs its factory files in both UKI and raw initrds so
+        # snap-bootstrap and the initrd mount units are present.
+        dracut_command += (
+            " -i /snap/ubuntu-core-initramfs/current/usr/lib/"
+            "ubuntu-core-initramfs/main /"
+            ' "${DRACUT_HELPERS[@]}"'
+        )
         # Include extra files
         for file in self.options.initrd_config.extra_files:
             dracut_command += f" -I {file}"
+        sysroot = "$CRAFT_PART_BUILD/uc-initramfs-build"
         commands = [
             *self.__generate_copy_files_commands(),
             f"ln -sfv vmlinuz-{guessed_kernel_version} $CRAFT_PART_BUILD/uc-initramfs-build/boot/kernel.img",
             "touch $CRAFT_PART_BUILD/uc-initramfs-build/boot/empty.bmp",
+            # dracut validates -i SOURCE in the snap's mount namespace, then
+            # copies the same absolute path beneath its sysroot. Mirror it there.
+            "mkdir -p $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/ubuntu-core-initramfs",
+            "mkdir -p $CRAFT_PART_BUILD/uc-initramfs-build/usr/bin",
+            # The Ubuntu Core chroot service expects /usr/bin/chroot.
+            f"if [ ! -e {sysroot}/usr/bin/chroot ] && [ -e {sysroot}/usr/sbin/chroot ]; then cp {sysroot}/usr/sbin/chroot {sysroot}/usr/bin/chroot; fi",
+            # snap-bootstrap needs these, but their presence and location vary
+            # by series, so only ask dracut for the ones the sysroot has.
+            "DRACUT_HELPERS=()",
+            f"for helper in {' '.join(_DRACUT_UC_HELPERS)}; do "
+            f'if [ -e "{sysroot}${{helper}}" ]; then DRACUT_HELPERS+=(-I "${{helper}}"); '
+            'else echo "Not in sysroot, skipping: ${helper}"; fi; done',
+            "mkdir -p $CRAFT_PART_BUILD/uc-initramfs-build/snap/ubuntu-core-initramfs/current/usr/lib/ubuntu-core-initramfs",
+            "cp -ar /snap/ubuntu-core-initramfs/current/usr/lib/ubuntu-core-initramfs/main $CRAFT_PART_BUILD/uc-initramfs-build/snap/ubuntu-core-initramfs/current/usr/lib/ubuntu-core-initramfs/",
             'cp -ar "/snap/dracut/current/lib/dracut" "$CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/"',
             dracut_command,
         ]

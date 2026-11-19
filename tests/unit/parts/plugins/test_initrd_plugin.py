@@ -195,6 +195,31 @@ class TestDracutBuildCommands:
         assert "initrd.img-6.8.0-100-generic" in joined
         # real file at the snap root, hardlinked versioned name
         assert "$CRAFT_PART_INSTALL/initrd.img" in joined
+        assert "-o busybox" in joined
+        for helper in (
+            "/usr/bin/mount",
+            "/usr/bin/mountpoint",
+            "/usr/bin/touch",
+            "/usr/bin/chroot",
+            "/usr/bin/systemd-mount",
+            "/usr/bin/unsquashfs",
+            "/usr/lib/snapd/snap-bootstrap",
+        ):
+            assert helper in joined
+        # helpers are only requested when present in the sysroot
+        assert "DRACUT_HELPERS+=(-I" in joined
+        dracut = next(c for c in commands if "dracut -v" in c)
+        assert '"${DRACUT_HELPERS[@]}"' in dracut
+        assert (
+            "-i /snap/ubuntu-core-initramfs/current/usr/lib/"
+            "ubuntu-core-initramfs/main /"
+        ) in joined
+        assert (
+            "cp -ar /snap/ubuntu-core-initramfs/current/usr/lib/"
+            "ubuntu-core-initramfs/main"
+        ) in joined
+        assert "uc-initramfs-build/snap/ubuntu-core-initramfs" in joined
+        assert "uc-initramfs-build/usr/sbin/chroot" in joined
 
     def test_efi_ukify(self, part_info):
         commands = self._commands(part_info, **{"image-type": "efi"})
