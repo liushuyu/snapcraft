@@ -15,37 +15,41 @@ EOF
 {%- endif %}
 {% endmacro %}
 
-{% macro build_external_module(linux_tree_path, module_path, module_name, dest_path) %}
+{% macro build_external_module(linux_tree_path, module_path, module_name, dest_path, linux_tree_path_is_shell=false) %}
 {% set target = "modules" %}
 {% if module_name == "$template" %}
 {% set target = "" %}
 {% elif module_name %}
 {% set target = module_name + ".ko" %}
 {% endif %}
-make -C {{ linux_tree_path|escape_shell_word }} M={{ module_path|escape_shell_word }} {{ target|escape_shell_word if target }}
+{% set kernel_tree = linux_tree_path if linux_tree_path_is_shell else linux_tree_path|escape_shell_word %}
+make -C {{ kernel_tree }} M={{ module_path|escape_shell_word }} {{ target|escape_shell_word if target }}
 {% if dest_path %}
-{% if target %}
-install -Dvm755 "{{ target }}" {{ dest_path|escape_shell_word }}/updates/dkms/{{ target|escape_shell_word }}
+{# dest_path is plugin-constructed and may contain shell to expand at build
+   time (the versioned modules dir), so it is deliberately not escaped #}
+{% if module_name and module_name != "$template" %}
+install -Dvm755 "{{ target }}" {{ dest_path }}/updates/dkms/{{ target|escape_shell_word }}
 {% else %}
-find {{ module_path|escape_shell_word }} -name "*.ko" -type f -exec install -Dvm755 '{}' {{ dest_path|escape_shell_word }}/updates/dkms/'{}' ';'
+find {{ module_path|escape_shell_word }} -name "*.ko" -type f -exec sh -c 'install -Dvm755 "$1" "$2/$(basename "$1")"' _ '{}' {{ dest_path }}/updates/dkms ';'
 {% endif %}
 {% endif %}
 {% endmacro %}
 
-{% macro generate_dkms_wrapper(module_name, linux_tree_path, module_path, dest_path, target_arch) %}
+{% macro generate_dkms_wrapper(module_name, linux_tree_path, module_path, dest_path, target_arch, linux_tree_path_is_shell=false, kernel_release='"${KERNEL_ABI}"') %}
 {% set config_filename = module_path + "/dkms.conf" %}
+{% set kernel_tree = linux_tree_path if linux_tree_path_is_shell else linux_tree_path|escape_shell_word %}
 module_build_{{module_name}}() {
     local _make_args
     local _count
     if ! test -f {{ config_filename|escape_shell_word }}; then
-        {{ build_external_module(linux_tree_path, module_path, "", dest_path) }}
+        {{ build_external_module(linux_tree_path, module_path, "", dest_path, linux_tree_path_is_shell=linux_tree_path_is_shell) }}
         return
     fi
     local _module_dirname _module_dir_parent _module_path
     _module_path={{ module_path|escape_shell_word }}
     _module_dirname="$(basename "${_module_path}")"
     _module_dir_parent="$(dirname "${_module_path}")"
-    dkms install -a {{ target_arch|escape_shell_word }} -m "${_module_dirname}/0" --no-depmod -k "${KERNEL_ABI}" --kernelsourcedir {{ linux_tree_path|escape_shell_word }} --sourcetree "${_module_dir_parent}" --installtree "${CRAFT_PART_INSTALL}"/lib/modules --dkmstree "${CRAFT_PART_BUILD}/dkms/${_module_dirname}" --verbose
+    dkms install -a {{ target_arch|escape_shell_word }} -m "${_module_dirname}/0" --no-depmod -k {{ kernel_release }} --kernelsourcedir {{ kernel_tree }} --sourcetree "${_module_dir_parent}" --installtree "${CRAFT_PART_INSTALL}"/lib/modules --dkmstree "${CRAFT_PART_BUILD}/dkms/${_module_dirname}" --verbose
 }
 {% endmacro %}
 

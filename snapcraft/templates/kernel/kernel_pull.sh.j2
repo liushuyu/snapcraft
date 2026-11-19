@@ -23,8 +23,8 @@ echo "${real_flavour_string}" > {{ craft_part_state_dir }}/kernel-abi-flavour
 
     {% if config.extra_modules %}
 apt-get install -y --no-install-recommends \
-    linux-tools-"${KERNEL_ABI}"-{{ ubuntu_kernel_flavor }}:{{ target_arch }} \
-    linux-headers-"${KERNEL_ABI}"-{{ ubuntu_kernel_flavor }}:{{ target_arch }}
+    linux-tools-"${KERNEL_ABI}"-"${real_flavour_string}":{{ target_arch }} \
+    linux-headers-"${KERNEL_ABI}"-"${real_flavour_string}":{{ target_arch }}
     {% endif %}
 
 {% endif %}
