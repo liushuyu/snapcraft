@@ -374,8 +374,11 @@ class InitrdPlugin(plugins.Plugin):
                     f"mount --bind -r {signing.key} $CRAFT_PART_BUILD/uc-initramfs-build/etc/uci-signing.key",
                     f"mount --bind -r {signing.cert} $CRAFT_PART_BUILD/uc-initramfs-build/etc/uci-signing.crt",
                     f"ubuntu-core-initramfs create-efi --kernelver={guessed_kernel_version} --root $CRAFT_PART_BUILD/uc-initramfs-build --stub /usr/lib/systemd/boot/efi/{stub_name} --initrd /boot/initrd.img --kernel /boot/vmlinuz --output /boot/kernel.efi --key /etc/uci-signing.key --cert /etc/uci-signing.crt",
-                    f"install -Dvm755 $CRAFT_PART_BUILD/uc-initramfs-build/boot/kernel.efi-{guessed_kernel_version} $CRAFT_PART_INSTALL/kernel.efi",
-                    f"ln -sfv kernel.efi $CRAFT_PART_INSTALL/kernel.efi-{guessed_kernel_version}",
+                    f"install -Dvm755 $CRAFT_PART_BUILD/uc-initramfs-build/boot/kernel.efi-{guessed_kernel_version} $CRAFT_PART_INSTALL/kernel.efi-{guessed_kernel_version}",
+                    # Hard link, not symlink: snapd extracts only "kernel.efi"
+                    # from the snap at install/boot time, and a symlink would
+                    # dangle in the extracted directory.
+                    f"ln -fv $CRAFT_PART_INSTALL/kernel.efi-{guessed_kernel_version} $CRAFT_PART_INSTALL/kernel.efi",
                 ]
             )
         else:
@@ -422,14 +425,16 @@ class InitrdPlugin(plugins.Plugin):
             commands.extend(
                 [
                     f"cp -v $CRAFT_PART_BUILD/uc-initramfs-build/boot/EFI/Linux/linux-{guessed_kernel_version}*.efi $CRAFT_PART_INSTALL/kernel.efi-{guessed_kernel_version}",
-                    f"ln -sfv kernel.efi-{guessed_kernel_version} $CRAFT_PART_INSTALL/kernel.efi",
+                    f"ln -fv $CRAFT_PART_INSTALL/kernel.efi-{guessed_kernel_version} $CRAFT_PART_INSTALL/kernel.efi",
                 ]
             )
         else:
+            # initrd.img must sit at the snap root alongside kernel.img: snapd
+            # extracts it by name from the snap root at install/boot time.
             commands.extend(
                 [
-                    f"cp -v $CRAFT_PART_BUILD/uc-initramfs-build/boot/initramfs-{guessed_kernel_version}.img $CRAFT_PART_INSTALL/boot/",
-                    f"ln -sfv initramfs-{guessed_kernel_version}.img $CRAFT_PART_INSTALL/boot/initrd.img",
+                    f"cp -v $CRAFT_PART_BUILD/uc-initramfs-build/boot/initramfs-{guessed_kernel_version}.img $CRAFT_PART_INSTALL/",
+                    f"ln -fv $CRAFT_PART_INSTALL/initramfs-{guessed_kernel_version}.img $CRAFT_PART_INSTALL/initrd.img",
                 ]
             )
         return commands
