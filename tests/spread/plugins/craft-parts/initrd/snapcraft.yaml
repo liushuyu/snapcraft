@@ -13,7 +13,11 @@ adopt-info: kernel
 parts:
   kernel:
     plugin: kernel
-    kernel-ubuntu-binary-package: true
+    source: .
+    source-type: local
+    kernel-build-config:
+      build-type: binary-repack
+      ubuntu-kernel-flavour: generic
     stage-packages:
       - wireless-regdb
     override-build: |
@@ -28,7 +32,9 @@ parts:
   initrd:
     after: [kernel]
     plugin: initrd
-    initrd-build-efi-image: true
-    initrd-firmware:
-      - regulatory.db
-      - regulatory.db.p7s
+    initrd-config:
+      image-type: efi
+      build-backend: u-c-i
+      firmware:
+        - $CRAFT_STAGE/firmware/regulatory.db
+        - $CRAFT_STAGE/firmware/regulatory.db.p7s

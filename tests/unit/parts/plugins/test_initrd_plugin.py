@@ -52,11 +52,12 @@ RAW_CONFIG = {"image-type": "raw"}
 class TestConfigSchema:
     def test_defaults_are_raw_dracut(self, part_info):
         plugin = _make_plugin(
-            {"initrd-config": {"kernel-modules": DEFAULT_MODULES, **RAW_CONFIG}},
+            {"after": ["kernel"], "initrd-config": RAW_CONFIG},
             part_info,
         )
         assert plugin.options.initrd_config.image_type == "raw"
         assert plugin.options.initrd_config.build_backend == "dracut"
+        assert plugin.guessed_kernel_version == "${KERNEL_ABI}-${KERNEL_ABI_FLAVOUR}"
 
     def test_efi_schema(self, part_info):
         plugin = _make_plugin(
@@ -89,6 +90,26 @@ class TestConfigSchema:
         with pytest.raises(ValueError, match="kernel_modules must be specified"):
             _make_plugin({"initrd-config": RAW_CONFIG}, part_info)
 
+    def test_kernel_modules_implicit_from_kernel_part(self, part_info):
+        plugin = _make_plugin(
+            {"after": ["kernel"], "initrd-config": RAW_CONFIG},
+            part_info,
+        )
+        assert plugin.guessed_kernel_version == "${KERNEL_ABI}-${KERNEL_ABI_FLAVOUR}"
+        env = plugin.get_build_environment()
+        assert env["KERNEL_ABI"].endswith("/kernel/state/kernel-abi)")
+        assert env["KERNEL_ABI_FLAVOUR"].endswith("/kernel/state/kernel-abi-flavour)")
+
+    def test_only_one_kernel_part_allowed(self, part_info):
+        with pytest.raises(ValueError, match="only contain one element"):
+            _make_plugin(
+                {
+                    "after": ["kernel", "extra-kernel"],
+                    "initrd-config": RAW_CONFIG,
+                },
+                part_info,
+            )
+
     def test_kernel_version_from_modules_path(self, part_info):
         plugin = _make_plugin(
             {"initrd-config": {"kernel-modules": DEFAULT_MODULES, **RAW_CONFIG}},
@@ -100,7 +121,7 @@ class TestConfigSchema:
 class TestPullCommands:
     def test_installs_helper_snaps(self, part_info):
         plugin = _make_plugin(
-            {"initrd-config": {"kernel-modules": DEFAULT_MODULES, **RAW_CONFIG}},
+            {"after": ["kernel"], "initrd-config": RAW_CONFIG},
             part_info,
         )
         commands = plugin.get_pull_commands()
@@ -120,7 +141,7 @@ class TestPullCommands:
             part=Part("initrd", {}),
         )
         plugin = _make_plugin(
-            {"initrd-config": {"kernel-modules": DEFAULT_MODULES, **RAW_CONFIG}},
+            {"after": ["kernel"], "initrd-config": RAW_CONFIG},
             part_info,
         )
         with pytest.raises(Exception, match="not supported"):
@@ -131,13 +152,12 @@ class TestUciBuildCommands:
     def _commands(self, part_info, **config) -> list[str]:
         config.setdefault("image-type", "efi")
         config.setdefault("build-backend", "u-c-i")
-        config.setdefault("kernel-modules", DEFAULT_MODULES)
-        plugin = _make_plugin({"initrd-config": config}, part_info)
+        plugin = _make_plugin({"after": ["kernel"], "initrd-config": config}, part_info)
         return plugin.get_build_commands()
 
     def test_dracut_support_connected(self, part_info):
         plugin = _make_plugin(
-            {"initrd-config": {"kernel-modules": DEFAULT_MODULES, **RAW_CONFIG}},
+            {"after": ["kernel"], "initrd-config": RAW_CONFIG},
             part_info,
         )
         # connections were moved to the pull step
@@ -169,7 +189,7 @@ class TestUciBuildCommands:
     def test_modules_copied(self, part_info):
         commands = self._commands(part_info)
         joined = "\n".join(commands)
-        assert "usr/lib/modules/6.8.0-100-generic" in joined
+        assert "usr/lib/modules/${KERNEL_ABI}-${KERNEL_ABI_FLAVOUR}" in joined
 
     def test_modules_to_include_added_before_create_initrd(self, part_info):
         part_info.part_state_dir.mkdir(parents=True)
@@ -191,14 +211,13 @@ class TestUciBuildCommands:
 class TestDracutBuildCommands:
     def _commands(self, part_info, **config) -> list[str]:
         config.setdefault("build-backend", "dracut")
-        config.setdefault("kernel-modules", DEFAULT_MODULES)
         config.setdefault("image-type", "raw")
-        plugin = _make_plugin({"initrd-config": config}, part_info)
+        plugin = _make_plugin({"after": ["kernel"], "initrd-config": config}, part_info)
         return plugin.get_build_commands()
 
     def test_dracut_support_connected(self, part_info):
         plugin = _make_plugin(
-            {"initrd-config": {"kernel-modules": DEFAULT_MODULES, **RAW_CONFIG}},
+            {"after": ["kernel"], "initrd-config": RAW_CONFIG},
             part_info,
         )
         # connections were moved to the pull step
@@ -208,7 +227,7 @@ class TestDracutBuildCommands:
         """snapd extracts initrd.img by name from the snap root in raw mode."""
         commands = self._commands(part_info)
         joined = "\n".join(commands)
-        assert "initrd.img-6.8.0-100-generic" in joined
+        assert "initrd.img-${KERNEL_ABI}-${KERNEL_ABI_FLAVOUR}" in joined
         # real file at the snap root, hardlinked versioned name
         assert "$CRAFT_PART_INSTALL/initrd.img" in joined
         assert "-o busybox" in joined
@@ -260,10 +279,10 @@ class TestArchConstraints:
         )
         plugin = _make_plugin(
             {
+                "after": ["kernel"],
                 "initrd-config": {
                     "image-type": "efi",
-                    "kernel-modules": DEFAULT_MODULES,
-                }
+                },
             },
             part_info,
         )
@@ -283,10 +302,10 @@ class TestArchConstraints:
         )
         plugin = _make_plugin(
             {
+                "after": ["kernel"],
                 "initrd-config": {
                     "image-type": "efi",
-                    "kernel-modules": DEFAULT_MODULES,
-                }
+                },
             },
             part_info,
         )
