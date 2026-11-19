@@ -21,6 +21,7 @@ from craft_parts import Part, PartInfo, ProjectInfo
 from pydantic import ValidationError
 
 from snapcraft.parts.plugins import KernelPlugin
+from snapcraft.parts.plugins.kernel_plugin import _restrict_ubuntu_archive_sources
 from snapcraft.parts.plugins.kernel_plugin.build import (
     generate_pull_commands,
     normalize_kernel_config,
@@ -185,6 +186,95 @@ class TestBuildPackages:
         # perf's per-tool deps must be present, rtla's must not
         assert "libdw-dev:amd64" in packages
         assert "libtracefs-dev:amd64" not in packages
+
+
+class TestCrossBuildSources:
+    def test_restricts_official_sources_to_host_architecture(self, tmp_path):
+        apt_dir = tmp_path / "apt"
+        sources_dir = apt_dir / "sources.list.d"
+        sources_dir.mkdir(parents=True)
+        (apt_dir / "sources.list").write_text(
+            "deb http://nz.archive.ubuntu.com/ubuntu jammy main\n"
+            "deb [signed-by=/key.gpg] https://security.ubuntu.com/ubuntu "
+            "jammy-security main\n"
+            "deb http://ppa.example.test/ubuntu jammy main\n"
+        )
+        (sources_dir / "ports.sources").write_text(
+            "Types: deb\n"
+            "URIs: https://ports.ubuntu.com/ubuntu-ports/\n"
+            "Suites: jammy\n"
+            "Architectures: arm64\n"
+        )
+        (sources_dir / "archive.sources").write_text(
+            "Types: deb\n"
+            "URIs: http://archive.ubuntu.com/ubuntu/\n"
+            "Suites: jammy jammy-updates\n"
+            "Components: main universe\n\n"
+            "Types: deb\n"
+            "URIs: https://security.ubuntu.com/ubuntu/\n"
+            "Suites: jammy-security\n"
+            "Components: main universe\n"
+        )
+
+        _restrict_ubuntu_archive_sources("amd64", apt_dir=apt_dir)
+        _restrict_ubuntu_archive_sources("amd64", apt_dir=apt_dir)
+
+        assert (apt_dir / "sources.list").read_text() == (
+            "deb [arch=amd64] http://nz.archive.ubuntu.com/ubuntu jammy main\n"
+            "deb [signed-by=/key.gpg arch=amd64] "
+            "https://security.ubuntu.com/ubuntu jammy-security main\n"
+            "deb http://ppa.example.test/ubuntu jammy main\n"
+        )
+        assert "Architectures: arm64\n" in (sources_dir / "ports.sources").read_text()
+        archive_sources = (sources_dir / "archive.sources").read_text()
+        assert archive_sources.count("Architectures: amd64") == 2
+        _restrict_ubuntu_archive_sources("amd64", apt_dir=apt_dir)
+        assert (sources_dir / "archive.sources").read_text() == archive_sources
+
+    @pytest.mark.parametrize(
+        ("arch", "expected_url"),
+        [
+            ("i386", "https://archive.ubuntu.com/ubuntu/"),
+            ("arm64", "https://ports.ubuntu.com/ubuntu-ports/"),
+        ],
+    )
+    def test_cross_repository_matches_target_archive(
+        self, new_dir, monkeypatch, mocker, arch, expected_url
+    ):
+        monkeypatch.setenv("SNAP_NAME", "snapcraft")
+        mocker.patch(
+            "snapcraft.parts.plugins.kernel_plugin._restrict_ubuntu_archive_sources"
+        )
+        check_call = mocker.patch(
+            "snapcraft.parts.plugins.kernel_plugin.subprocess.check_call"
+        )
+        install = mocker.patch("snapcraft.parts.plugins.kernel_plugin.repo.install")
+        part_info = PartInfo(
+            project_info=ProjectInfo(
+                application_name="test",
+                project_name="test-snap",
+                cache_dir=new_dir,
+                base="core24",
+                arch=arch,
+            ),
+            part=Part("kernel", {}),
+        )
+        plugin = _make_plugin(
+            {"kernel-build-config": {"build-type": "binary-repack"}}, part_info
+        )
+
+        plugin._setup_cross_build_environment()
+
+        check_call.assert_any_call(["dpkg", "--add-architecture", arch])
+        repositories = install.call_args.args[0]
+        assert repositories[0]["url"] == expected_url
+        assert repositories[0]["architectures"] == [arch]
+        assert repositories[0]["components"] == [
+            "main",
+            "universe",
+            "restricted",
+            "multiverse",
+        ]
 
 
 class TestGetBuildEnvironment:
