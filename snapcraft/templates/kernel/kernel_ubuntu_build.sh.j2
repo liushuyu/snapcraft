@@ -158,13 +158,14 @@ mv -v {{ craft_part_install_dir }}/boot/* {{ craft_part_install_dir }}/
 ln -fv {{ craft_part_install_dir }}/vmlinuz-"${KERNEL_ABI}"-"${KERNEL_ABI_FLAVOUR}" {{ craft_part_install_dir }}/kernel.img
 mv -v {{ craft_part_install_dir }}/lib/modules {{ craft_part_install_dir }}/
 
-# Device tree
-DTBS=unpacked-linux-modules/lib/firmware/"${KERNEL_ABI}"-"${KERNEL_ABI_FLAVOUR}"/device-tree
-[ -d "${DTBS}" ] && mv -v "${DTBS}" {{ craft_part_install_dir }}/dtbs
-
-# Firmware
-FIRMWARE=unpacked-linux-firmware/lib/firmware/"${KERNEL_ABI}"
-[ -d "${FIRMWARE}" ] && mv -v "${FIRMWARE}" {{ craft_part_install_dir }}/firmware
+# Ubuntu ships device trees in the linux-modules package, under
+# lib/firmware/<abi>-<flavour>/device-tree (usr/lib/... on newer releases).
+for DTBS in unpacked-linux-modules/{,usr/}lib/firmware/"${KERNEL_ABI}"-"${KERNEL_ABI_FLAVOUR}"/device-tree; do
+    if [ -d "${DTBS}" ]; then
+        mv -v "${DTBS}" {{ craft_part_install_dir }}/dtbs
+        break
+    fi
+done
 rm -rf {{ craft_part_install_dir }}/boot
 
 {% from 'kernel_macros.sh.j2' import relocate_firmware with context %}
