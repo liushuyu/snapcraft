@@ -24,6 +24,10 @@ mkdir -pv {{ craft_part_build_dir }}/kernel
 {% if ubuntu_kernel_use_binary_package %}
 rsync -aH {{ craft_part_src_dir }}/*.deb {{ craft_part_build_dir }}/kernel
 {% else %}
+{# Extra modules without a source are prebuilt debs fetched during pull. #}
+{% for binary_module, module_source in config.extra_modules.items() if not module_source %}
+rsync -aH {{ craft_part_src_dir | escape_shell_word }}/{{ binary_module | escape_shell_word }}_*.deb {{ craft_part_build_dir }}/kernel
+{% endfor %}
 # --- BEGIN kernel source build ---
 {#
 This template is included by the build commands template when building from
@@ -127,6 +131,9 @@ cd {{ craft_part_build_dir }}/kernel
         -exec 'dpkg-deb' '-x' '{}' unpacked-linux-image ';'
     PKGS=(linux-modules-*-{{ ubuntu_kernel_flavor }}_*.deb)
 {% endif %}
+{% for binary_module, module_source in config.extra_modules.items() if not module_source %}
+PKGS+=({{ binary_module | escape_shell_word }}_*.deb)
+{% endfor %}
 
 for i in "${PKGS[@]}"; do
     dpkg-deb -x "$i" unpacked-linux-modules
@@ -153,7 +160,7 @@ mv -v unpacked-linux-modules/boot/* {{ craft_part_install_dir }}/boot/
 {% set linux_source_tree = craft_part_src_dir|escape_shell_word %}
 {% endif %}
 {% set kernel_release = '"${KERNEL_ABI}"-"${KERNEL_ABI_FLAVOUR}"' %}
-{% for dkms_module, _ in config.extra_modules.items() %}
+{% for dkms_module, module_source in config.extra_modules.items() if module_source %}
 {% set module_path = craft_part_src_dir + '/dkms/' + dkms_module %}
 {{ generate_dkms_wrapper(dkms_module, linux_source_tree, module_path, craft_part_install_dir + '/lib/modules/' + kernel_release, target_arch, linux_tree_path_is_shell=true, kernel_release=kernel_release) }}
 ln -sv {{ module_path|escape_shell_word }} {{ module_path|escape_shell_word }}-0
