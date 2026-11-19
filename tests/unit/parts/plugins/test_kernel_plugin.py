@@ -236,6 +236,33 @@ class TestGeneratedBuildCommands:
         assert "linux-image-unsigned" not in script
         assert "debian/rules" not in script
 
+    def test_repack_dkms_headers_path_expands_at_runtime(self, part_info):
+        """DKMS uses the ABI-flavoured headers directory from the downloaded
+        headers package, not the literal ${KERNEL_ABI} text.
+        """
+        script = self._render(
+            {
+                "kernel-build-config": {
+                    "build-type": "binary-repack",
+                    "extra-modules": {
+                        "helloworld": {
+                            "source": "x",
+                            "source-type": "local",
+                        }
+                    },
+                }
+            },
+            part_info,
+        )
+        assert (
+            '/usr/src/linux-headers-"${KERNEL_ABI}"-"${KERNEL_ABI_FLAVOUR}"' in script
+        )
+        assert '-k "${KERNEL_ABI}"-"${KERNEL_ABI_FLAVOUR}"' in script
+        assert (
+            '/lib/modules/"${KERNEL_ABI}"-"${KERNEL_ABI_FLAVOUR}"/updates/dkms'
+            in script
+        )
+
     def test_kernel_img_is_hardlinked(self, part_info):
         """snapd extracts kernel.img by name from the snap; a symlink dangles."""
         script = self._render(
