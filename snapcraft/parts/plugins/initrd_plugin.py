@@ -411,10 +411,11 @@ class InitrdPlugin(plugins.Plugin):
         else:
             # initrd.img must sit at the snap root alongside kernel.img: snapd
             # extracts it by name from the snap root at install/boot time.
+            # dracut writes initrd.img-<version>, as does the u-c-i backend.
             commands.extend(
                 [
-                    f"cp -v $CRAFT_PART_BUILD/uc-initramfs-build/boot/initramfs-{guessed_kernel_version}.img $CRAFT_PART_INSTALL/",
-                    f"ln -fv $CRAFT_PART_INSTALL/initramfs-{guessed_kernel_version}.img $CRAFT_PART_INSTALL/initrd.img",
+                    f"cp -v $CRAFT_PART_BUILD/uc-initramfs-build/boot/initrd.img-{guessed_kernel_version} $CRAFT_PART_INSTALL/",
+                    f"ln -fv $CRAFT_PART_INSTALL/initrd.img-{guessed_kernel_version} $CRAFT_PART_INSTALL/initrd.img",
                 ]
             )
         return commands

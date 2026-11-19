@@ -192,7 +192,7 @@ class TestDracutBuildCommands:
         """snapd extracts initrd.img by name from the snap root in raw mode."""
         commands = self._commands(part_info)
         joined = "\n".join(commands)
-        assert "initramfs-6.8.0-100-generic.img" in joined
+        assert "initrd.img-6.8.0-100-generic" in joined
         # real file at the snap root, hardlinked versioned name
         assert "$CRAFT_PART_INSTALL/initrd.img" in joined
 
