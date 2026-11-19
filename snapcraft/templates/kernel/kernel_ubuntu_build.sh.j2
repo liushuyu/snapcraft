@@ -10,6 +10,14 @@
 {% include 'kernel_macros.sh.j2' %}
 env
 
+{# Remove outputs of a previous build (for repeated builds), but keep anything
+   craft-parts unpacked into the install directory before this script runs,
+   such as stage-packages. #}
+rm -rf {{ craft_part_install_dir }}/boot {{ craft_part_install_dir }}/modules \
+    {{ craft_part_install_dir }}/lib/modules {{ craft_part_install_dir }}/dtbs \
+    {{ craft_part_install_dir }}/kernel.img {{ craft_part_install_dir }}/vmlinuz-* \
+    {{ craft_part_install_dir }}/System.map-* {{ craft_part_install_dir }}/config-*
+
 mkdir -pv {{ craft_part_build_dir }}/kernel
 # Get source deb packages into build arena
 {% if ubuntu_kernel_use_binary_package %}
@@ -117,7 +125,8 @@ for i in "${PKGS[@]}"; do
 done
 
 # Unpack the linux deb binaries to snap package structure
-mv -v unpacked-linux-image/* {{ craft_part_install_dir }}
+{# Merge rather than mv: stage-packages may already have created usr/ etc. #}
+cp -av unpacked-linux-image/. {{ craft_part_install_dir }}/
 mkdir -pv {{ craft_part_install_dir }}/lib
 if test -d unpacked-linux-modules/lib/modules; then
     mv -v unpacked-linux-modules/lib/modules {{ craft_part_install_dir }}/lib/
@@ -159,3 +168,6 @@ DTBS=unpacked-linux-modules/lib/firmware/"${KERNEL_ABI}"-"${KERNEL_ABI_FLAVOUR}"
 FIRMWARE=unpacked-linux-firmware/lib/firmware/"${KERNEL_ABI}"
 [ -d "${FIRMWARE}" ] && mv -v "${FIRMWARE}" {{ craft_part_install_dir }}/firmware
 rm -rf {{ craft_part_install_dir }}/boot
+
+{% from 'kernel_macros.sh.j2' import relocate_firmware with context %}
+{{ relocate_firmware() }}
