@@ -352,7 +352,6 @@ class InitrdPlugin(plugins.Plugin):
             if not needs_mutable_uci
             else "cp -a /snap/ubuntu-core-initramfs/current/usr/lib/ubuntu-core-initramfs/. $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/ubuntu-core-initramfs/",
             f"export $(dpkg-architecture -a{self._part_info._project_info.arch_build_for})",
-            f"ubuntu-core-initramfs create-initrd --kernelver={guessed_kernel_version} --root $CRAFT_PART_BUILD/uc-initramfs-build --output /boot/initrd.img",
         ]
         if self.options.initrd_config.kernel_modules_to_include:
             with open(self._part_info.part_state_dir / "extra-modules", "w") as f:
@@ -373,6 +372,9 @@ class InitrdPlugin(plugins.Plugin):
             commands.append(
                 f"cp -a {obj} $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/ubuntu-core-initramfs/main/"
             )
+        commands.append(
+            f"ubuntu-core-initramfs create-initrd --kernelver={guessed_kernel_version} --root $CRAFT_PART_BUILD/uc-initramfs-build --output /boot/initrd.img"
+        )
         if self.options.initrd_config.image_type == "efi":
             signing = self.options.initrd_config.signing
             stub_name = self.__get_systemd_efi_stub_name()

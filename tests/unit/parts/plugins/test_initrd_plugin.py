@@ -171,6 +171,22 @@ class TestUciBuildCommands:
         joined = "\n".join(commands)
         assert "usr/lib/modules/6.8.0-100-generic" in joined
 
+    def test_modules_to_include_added_before_create_initrd(self, part_info):
+        part_info.part_state_dir.mkdir(parents=True)
+        commands = self._commands(
+            part_info,
+            **{"kernel-modules-to-include": ["loop"]},
+        )
+        bind_index = next(
+            i
+            for i, command in enumerate(commands)
+            if "mount --bind -r /tmp/extra-modules.conf" in command
+        )
+        create_index = next(
+            i for i, command in enumerate(commands) if "create-initrd" in command
+        )
+        assert bind_index < create_index
+
 
 class TestDracutBuildCommands:
     def _commands(self, part_info, **config) -> list[str]:
