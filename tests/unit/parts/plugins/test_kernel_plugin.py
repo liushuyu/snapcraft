@@ -325,6 +325,7 @@ class TestGeneratedBuildCommands:
         assert "dpkg-deb -x linux-image-" in script
         assert "linux-image-unsigned" not in script
         assert "debian/rules" not in script
+        assert 'linux-main-modules*-"${KERNEL_ABI}"-' in script
 
     def test_repack_dkms_headers_path_expands_at_runtime(self, part_info):
         """DKMS uses the ABI-flavoured headers directory from the downloaded
@@ -361,6 +362,15 @@ class TestGeneratedBuildCommands:
         assert "ln -fv" in script
         assert "kernel.img" in script
         assert "ln -sfv" not in script.replace("ln -sfv vmlinuz", "")
+
+    def test_kernel_img_falls_back_to_vmlinux(self, part_info):
+        script = self._render(
+            {"kernel-build-config": {"build-type": "binary-repack"}}, part_info
+        )
+        assert 'vmlinux-"${KERNEL_ABI}"-"${KERNEL_ABI_FLAVOUR}"' in script
+        assert (
+            "Kernel image not found for ${KERNEL_ABI}-${KERNEL_ABI_FLAVOUR}" in script
+        )
 
     def test_image_targets_override(self, part_info):
         script = self._render(
