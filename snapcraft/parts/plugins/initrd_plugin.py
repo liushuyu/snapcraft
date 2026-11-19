@@ -338,7 +338,6 @@ class InitrdPlugin(plugins.Plugin):
             # image. Mount the skeleton from the snap into the root first.
             "mkdir -p $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/ubuntu-core-initramfs",
             "mount --bind -r /snap/ubuntu-core-initramfs/current/usr/lib/ubuntu-core-initramfs $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/ubuntu-core-initramfs",
-            f"ubuntu-core-initramfs create-initrd --kernelver={guessed_kernel_version} --root $CRAFT_PART_BUILD/uc-initramfs-build --output /boot/initrd.img",
         ]
         if self.options.initrd_config.kernel_modules_to_include:
             with open(self._part_info.part_state_dir / "extra-modules", "w") as f:
@@ -351,6 +350,9 @@ class InitrdPlugin(plugins.Plugin):
                     "mount --bind -r /tmp/extra-modules.conf $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/ubuntu-core-initramfs/modules/main/extra-modules.conf",
                 ]
             )
+        commands.append(
+            f"ubuntu-core-initramfs create-initrd --kernelver={guessed_kernel_version} --root $CRAFT_PART_BUILD/uc-initramfs-build --output /boot/initrd.img"
+        )
         if self.options.initrd_config.image_type == "efi":
             signing = self.options.initrd_config.signing
             stub_name = self.__get_systemd_efi_stub_name()
