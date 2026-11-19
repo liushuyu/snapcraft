@@ -373,6 +373,9 @@ class InitrdPlugin(plugins.Plugin):
             commands.append(
                 f"cp -a {obj} $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/ubuntu-core-initramfs/main/"
             )
+        commands.append(
+            f"ubuntu-core-initramfs create-initrd --kernelver={guessed_kernel_version} --root $CRAFT_PART_BUILD/uc-initramfs-build --output /boot/initrd.img"
+        )
         if self.options.initrd_config.image_type == "efi":
             signing = self.options.initrd_config.signing
             stub_name = self.__get_systemd_efi_stub_name()
