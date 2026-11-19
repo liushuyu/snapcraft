@@ -48,3 +48,25 @@ module_build_{{module_name}}() {
     dkms install -a {{ target_arch|escape_shell_word }} -m "${_module_dirname}/0" --no-depmod -k "${KERNEL_ABI}" --kernelsourcedir {{ linux_tree_path|escape_shell_word }} --sourcetree "${_module_dir_parent}" --installtree "${CRAFT_PART_INSTALL}"/lib/modules --dkmstree "${CRAFT_PART_BUILD}/dkms/${_module_dirname}" --verbose
 }
 {% endmacro %}
+
+{#
+snapd mounts firmware/ from the kernel snap root, and Ubuntu Core install mode
+fails if it is missing. Firmware staged into the part (e.g. stage-packages:
+[linux-firmware]) lands in lib/firmware or, on newer releases, usr/lib/firmware.
+#}
+{% macro relocate_firmware(link_lib_firmware=false) %}
+for _fw in usr/lib/firmware lib/firmware; do
+  if [ -d "${CRAFT_PART_INSTALL}/${_fw}" ] && [ ! -L "${CRAFT_PART_INSTALL}/${_fw}" ]; then
+    echo "Moving ${_fw} to firmware/..."
+    mkdir -p "${CRAFT_PART_INSTALL}/firmware"
+    cp -alf "${CRAFT_PART_INSTALL}/${_fw}/." "${CRAFT_PART_INSTALL}/firmware/"
+    rm -rf "${CRAFT_PART_INSTALL:?}/${_fw}"
+{% if link_lib_firmware %}
+    if [ "${_fw}" = lib/firmware ]; then
+      ln -sf ../firmware "${CRAFT_PART_INSTALL}/lib/firmware"
+    fi
+{% endif %}
+  fi
+done
+mkdir -p "${CRAFT_PART_INSTALL}/firmware"
+{% endmacro %}
