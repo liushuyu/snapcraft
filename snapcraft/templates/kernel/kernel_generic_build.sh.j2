@@ -216,18 +216,8 @@ create_snap_structure() {
   # Create symlinks for canonical paths to modules
   ln -sf ../modules  "${CRAFT_PART_INSTALL}/lib/modules"
 
-  # If there is firmware dir, move it to snap root as snapd expects firmware/
-  # The firmware may or may not be handled by the part using this plugin, so
-  # this behavior is conditional. Parts handling firmware should create their
-  # own lib/firmware -> firmware link
-  if [ -d "${CRAFT_PART_INSTALL}/lib/firmware" ]; then
-    mv -f "${CRAFT_PART_INSTALL}/lib/firmware" "${CRAFT_PART_INSTALL}"
-    ln -sf ../firmware "${CRAFT_PART_INSTALL}/lib/firmware"
-  fi
-  if [ -d "${CRAFT_PART_INSTALL}/usr/lib/firmware" ]; then
-    cp -ar "${CRAFT_PART_INSTALL}/usr/lib/firmware" "${CRAFT_PART_INSTALL}"
-    rm -rf "${CRAFT_PART_INSTALL}/usr/lib/firmware"
-  fi
+  {% from 'kernel_macros.sh.j2' import relocate_firmware with context %}
+  {{ relocate_firmware(link_lib_firmware=true) | indent(2) }}
 }
 
 if [ -d "${CRAFT_PART_SRC}/kernel" ]; then
