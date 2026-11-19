@@ -366,6 +366,7 @@ class TestPullCommands:
         assert "apt-get install" in script
         assert "--download-only" in script
         assert "linux-image-" in script
+        assert "ports.ubuntu.com" not in script
 
     def test_ubuntu_tree_no_deb_pull(self, part_info):
         plugin = _make_plugin(
