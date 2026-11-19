@@ -357,6 +357,32 @@ class TestGeneratedBuildCommands:
             in script
         )
 
+    @pytest.mark.parametrize("build_type", ["binary-repack", "ubuntu-tree"])
+    def test_binary_extra_module_is_unpacked_not_built(self, part_info, build_type):
+        """An extra module without a source is a prebuilt deb from pull; it
+        must be unpacked with the kernel modules, never handed to DKMS.
+        """
+        module = "linux-modules-iwlwifi-6.8.0-149-generic"
+        script = self._render(
+            {
+                "kernel-build-config": {
+                    "build-type": build_type,
+                    "extra-modules": {
+                        module: None,
+                        "helloworld": {"source": "x", "source-type": "local"},
+                    },
+                }
+            },
+            part_info,
+        )
+        assert f"PKGS+=({module}_*.deb)" in script
+        assert f"module_build_{module}" not in script
+        assert f"dkms/{module}" not in script
+        assert "module_build_helloworld" in script
+        subprocess.run(["bash", "-n"], input=script, text=True, check=True)
+        if build_type == "ubuntu-tree":
+            assert f"/{module}_*.deb {part_info.part_build_dir}/kernel" in script
+
     def test_kernel_img_is_hardlinked(self, part_info):
         """snapd extracts kernel.img by name from the snap; a symlink dangles."""
         script = self._render(
