@@ -188,8 +188,6 @@ class InitrdPlugin(plugins.Plugin):
                 [
                     f"UBUNTU_STORE_ARCH={target_arch} snap download ubuntu-core-initramfs --edge --basename=u-c-i-snap",
                     f"unsquashfs -d u-c-i-snap u-c-i-snap.snap /opt/{target_triple}-sysroot.tar /usr/lib/ubuntu-core-initramfs/main",
-                    "umount /snap/ubuntu-core-initramfs/current/usr/lib/ubuntu-core-initramfs/main || true",
-                    "mount --bind -r u-c-i-snap/usr/lib/ubuntu-core-initramfs/main /snap/ubuntu-core-initramfs/current/usr/lib/ubuntu-core-initramfs/main",
                 ]
             )
             sysroot_tar_path = f"u-c-i-snap/opt/{target_triple}-sysroot.tar"
@@ -202,6 +200,7 @@ class InitrdPlugin(plugins.Plugin):
             [
                 f"mkdir -p {initrd_root}",
                 f"tar -xf {sysroot_tar_path} -C {initrd_root}",
+                f"if test -d u-c-i-snap/usr/lib; then cp -aT u-c-i-snap/usr/lib {initrd_root}/usr/lib; fi",
                 f"mknod {initrd_root}/dev/null c 1 3 || touch {initrd_root}/dev/null",
             ]
         )
