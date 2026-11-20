@@ -1,0 +1,44 @@
+summary: Kernel plugin binary-repack with a prebuilt extra module (manual)
+manual: true
+kill-timeout: 60m
+
+systems:
+  - ubuntu-24.04*
+
+environment:
+  SNAPCRAFT_BUILD_ENVIRONMENT: host
+  SNAPCRAFT_ENABLE_EXPERIMENTAL_PLUGINS: 1
+
+prepare: |
+  #shellcheck source=tests/spread/tools/kernel-snap.sh
+  . "$TOOLS_DIR/kernel-snap.sh"
+  save_kernel_host_state
+
+  abi="$(
+    apt-cache show linux-image-generic/noble |
+      sed -n 's/^Version: \([0-9]*\.[0-9]*\.[0-9]*-[0-9]*\).*/\1/p' |
+      head -1
+  )"
+  package="linux-modules-iwlwifi-${abi}-generic"
+  apt-cache show "${package}/noble" | grep -q "^Package: ${package}$"
+  echo "$abi" >kernel-abi
+  sed "s/BINARY_MODULE_PACKAGE/${package}/" snapcraft.yaml.in >snapcraft.yaml
+
+execute: |
+  #shellcheck source=tests/spread/tools/kernel-snap.sh
+  . "$TOOLS_DIR/kernel-snap.sh"
+
+  snapcraft pack
+  verify_kernel_snap generic
+  find "squashfs-root/modules/$(cat kernel-abi)-generic" \
+    -type f -name 'iwlwifi.ko*' -print -quit | grep -q .
+
+restore: |
+  #shellcheck source=tests/spread/tools/kernel-snap.sh
+  . "$TOOLS_DIR/kernel-snap.sh"
+
+  if [ -e snapcraft.yaml ]; then
+    snapcraft clean
+  fi
+  rm -rf ./*.snap squashfs-root/ snapcraft.yaml kernel-abi
+  restore_kernel_host_state
