@@ -187,7 +187,9 @@ class InitrdPlugin(plugins.Plugin):
             commands.extend(
                 [
                     f"UBUNTU_STORE_ARCH={target_arch} snap download ubuntu-core-initramfs --edge --basename=u-c-i-snap",
-                    f"unsquashfs -d u-c-i-snap u-c-i-snap.snap /opt/{target_triple}-sysroot.tar",
+                    f"unsquashfs -d u-c-i-snap u-c-i-snap.snap /opt/{target_triple}-sysroot.tar /usr/lib/ubuntu-core-initramfs/main",
+                    "umount /snap/ubuntu-core-initramfs/current/usr/lib/ubuntu-core-initramfs/main || true",
+                    "mount --bind -r u-c-i-snap/usr/lib/ubuntu-core-initramfs/main /snap/ubuntu-core-initramfs/current/usr/lib/ubuntu-core-initramfs/main",
                 ]
             )
             sysroot_tar_path = f"u-c-i-snap/opt/{target_triple}-sysroot.tar"
@@ -322,6 +324,7 @@ class InitrdPlugin(plugins.Plugin):
             # image. Mount the skeleton from the snap into the root first.
             "mkdir -p $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/ubuntu-core-initramfs",
             "mount --bind -r /snap/ubuntu-core-initramfs/current/usr/lib/ubuntu-core-initramfs $CRAFT_PART_BUILD/uc-initramfs-build/usr/lib/ubuntu-core-initramfs",
+            f"export $(dpkg-architecture -a{self._part_info._project_info.arch_build_for})",
             f"ubuntu-core-initramfs create-initrd --kernelver={guessed_kernel_version} --root $CRAFT_PART_BUILD/uc-initramfs-build --output /boot/initrd.img",
         ]
         if self.options.initrd_config.kernel_modules_to_include:
@@ -351,7 +354,6 @@ class InitrdPlugin(plugins.Plugin):
             commands.extend(
                 [
                     f"cp -v $CRAFT_PART_BUILD/uc-initramfs-build/boot/initrd.img-{guessed_kernel_version} $CRAFT_PART_INSTALL/initrd.img",
-                    f"ln -sfv ../initrd.img-{guessed_kernel_version} $CRAFT_PART_INSTALL/boot/initrd.img",
                     f"ln -sfv initrd.img $CRAFT_PART_INSTALL/initrd.img-{guessed_kernel_version}",
                 ]
             )
