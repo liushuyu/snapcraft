@@ -326,6 +326,7 @@ class TestGeneratedBuildCommands:
         assert "linux-image-unsigned" not in script
         assert "debian/rules" not in script
         assert 'linux-main-modules*-"${KERNEL_ABI}"-' in script
+        assert f"rm -rf {part_info.part_build_dir}/kernel" in script
 
     def test_repack_dkms_headers_path_expands_at_runtime(self, part_info):
         """DKMS uses the ABI-flavoured headers directory from the downloaded

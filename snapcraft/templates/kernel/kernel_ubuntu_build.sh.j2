@@ -19,6 +19,7 @@ rm -rf {{ craft_part_install_dir }}/boot {{ craft_part_install_dir }}/modules \
     {{ craft_part_install_dir }}/vmlinux-* \
     {{ craft_part_install_dir }}/System.map-* {{ craft_part_install_dir }}/config-*
 
+rm -rf {{ craft_part_build_dir }}/kernel
 mkdir -pv {{ craft_part_build_dir }}/kernel
 # Get source deb packages into build arena
 {% if ubuntu_kernel_use_binary_package %}
