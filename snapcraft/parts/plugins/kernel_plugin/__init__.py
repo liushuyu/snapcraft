@@ -79,7 +79,11 @@ KERNEL_TOOLS_BUILD_DEPS = {
     },
     "hyperv": set(),
 }
-UBUNTU_ARCHIVE_HOSTS = {"archive.ubuntu.com", "security.ubuntu.com"}
+UBUNTU_ARCHIVE_HOSTS = {
+    "archive.ubuntu.com",
+    "ports.ubuntu.com",
+    "security.ubuntu.com",
+}
 
 
 def _is_ubuntu_archive_url(url: str) -> bool:
@@ -319,10 +323,8 @@ class KernelPlugin(plugins.Plugin):
             module_source,
         ) in self.options.kernel_build_config.extra_modules.items():
             if not module_source:
-                # this means we are re-packing a binary package
-                base_commands.append(
-                    f"apt-get download {escape_shell_word(module_name)}"
-                )
+                package = f"{module_name}:{self._part_info.target_arch}"
+                base_commands.append(f"apt-get download {escape_shell_word(package)}")
                 continue
             # create a new fake part for the source handler to pull into the correct location
             handler = get_source_handler(
