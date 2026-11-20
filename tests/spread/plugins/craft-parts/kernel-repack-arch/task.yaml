@@ -1,0 +1,51 @@
+summary: Kernel plugin binary-repack cross-built from amd64 (manual)
+manual: true
+kill-timeout: 60m
+
+# One variant per architecture and flavour. Exercises the plugin's cross-build
+# repository setup without compiling. i386 debs only exist in focal, which
+# Snapcraft 9 doesn't support.
+systems:
+  - ubuntu-24.04*
+
+environment:
+  ARCH/arm64,arm64_64k,arm64_raspi: arm64
+  ARCH/armhf: armhf
+  ARCH/riscv64: riscv64
+  ARCH/s390x: s390x
+  ARCH/ppc64el: ppc64el
+  FLAVOUR/arm64,armhf,riscv64,s390x,ppc64el: generic
+  FLAVOUR/arm64_64k: generic-64k
+  FLAVOUR/arm64_raspi: raspi
+  SNAPCRAFT_BUILD_ENVIRONMENT: host
+  SNAPCRAFT_ENABLE_EXPERIMENTAL_PLUGINS: 1
+
+prepare: |
+  #shellcheck source=tests/spread/tools/kernel-snap.sh
+  . "$TOOLS_DIR/kernel-snap.sh"
+  save_kernel_host_state
+
+  sed -e "s/ARCH_PLACEHOLDER/$ARCH/g" -e "s/FLAVOUR_PLACEHOLDER/$FLAVOUR/" \
+    snapcraft.yaml.in >snapcraft.yaml
+
+execute: |
+  #shellcheck source=tests/spread/tools/kernel-snap.sh
+  . "$TOOLS_DIR/kernel-snap.sh"
+
+  snapcraft pack --build-for "$ARCH"
+  verify_kernel_snap "$FLAVOUR"
+  verify_kernel_snap_arch "$ARCH" "$FLAVOUR"
+  if [ "$FLAVOUR" = raspi ]; then
+    verify_kernel_snap_has_files dtbs
+    verify_kernel_snap_has_files firmware
+  fi
+
+restore: |
+  #shellcheck source=tests/spread/tools/kernel-snap.sh
+  . "$TOOLS_DIR/kernel-snap.sh"
+
+  if [ -e snapcraft.yaml ]; then
+    snapcraft clean
+  fi
+  rm -rf ./*.snap squashfs-root/ snapcraft.yaml
+  restore_kernel_host_state

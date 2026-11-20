@@ -77,6 +77,12 @@ jobs:
             openstack:ubuntu-22.04-64:tests/spread/plugins/craft-parts/kernel-cross
             openstack:ubuntu-22.04-64:tests/spread/plugins/craft-parts/kernel-deb
           junit-name: kernel-plugins
+      - name: Kernel plugin binary-repack tests
+        with:
+          args: >-
+            openstack:ubuntu-24.04-64:tests/spread/plugins/craft-parts/kernel-repack-flavours
+            openstack:ubuntu-24.04-64:tests/spread/plugins/craft-parts/kernel-repack-arch
+          junit-name: kernel-plugins-bin-repack
 
   initrd-plugins:
     needs: [predicate, snap-build]
