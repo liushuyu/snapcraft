@@ -22,7 +22,7 @@ execute: |
   # Updating a local source reruns the build step without cleaning the part.
   touch snapcraft.yaml
   # The build template must remove generated outputs left by the first run.
-  touch parts/kernel/install/vmlinuz-stale
+  touch parts/kernel/build/kernel/unpacked-linux-image/boot/vmlinuz-stale
   snapcraft pack
   unsquashfs -d parts/second pc-kernel_*.snap
 
