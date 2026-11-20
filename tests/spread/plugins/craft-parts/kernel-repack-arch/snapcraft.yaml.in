@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: GPL-2.0
+# Copyright (C) 2026 Canonical Ltd
+name: pc-kernel
+summary: Kernel plugin cross-arch sweep
+description: Cross-repack noble kernel debs.
+
+grade: stable
+build-base: core24
+confinement: strict
+type: kernel
+version: "1"
+
+platforms:
+  cross-ARCH_PLACEHOLDER:
+    build-on: [amd64]
+    build-for: [ARCH_PLACEHOLDER]
+
+parts:
+  kernel:
+    plugin: kernel
+    source: .
+    source-type: local
+    kernel-build-config:
+      build-type: binary-repack
+      ubuntu-kernel-flavour: FLAVOUR_PLACEHOLDER
+      ubuntu-release-name: noble

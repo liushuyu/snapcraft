@@ -1,0 +1,33 @@
+summary: Kernel plugin binary-repack across bases (PR-gating)
+kill-timeout: 60m
+
+# Each variant only repacks archive debs, so it takes a few minutes. Run on a
+# single system to avoid multiplying runner time. core20 is included because
+# the plugin must support it, although Snapcraft 9 currently rejects that base.
+systems:
+  - ubuntu-24.04-64
+
+environment:
+  BASE/core20: core20
+  BASE/core22: core22
+  BASE/core24: core24
+  BASE/core26: core26
+  SNAPCRAFT_BUILD_ENVIRONMENT: ""
+  SNAPCRAFT_ENABLE_EXPERIMENTAL_PLUGINS: 1
+
+prepare: |
+  cp "$BASE/snapcraft.yaml" snapcraft.yaml
+
+execute: |
+  #shellcheck source=tests/spread/tools/kernel-snap.sh
+  . "$TOOLS_DIR/kernel-snap.sh"
+
+  snapcraft pack
+  verify_kernel_snap generic
+  grep -q "^build-base: $BASE$" squashfs-root/meta/snap.yaml
+
+restore: |
+  if [ -e snapcraft.yaml ]; then
+    snapcraft clean
+  fi
+  rm -rf ./*.snap squashfs-root/ snapcraft.yaml

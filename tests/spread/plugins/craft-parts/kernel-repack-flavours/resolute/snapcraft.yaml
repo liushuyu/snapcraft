@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: GPL-2.0
+# Copyright (C) 2026 Canonical Ltd
+name: pc-kernel
+summary: Kernel plugin flavour sweep (resolute)
+description: Repack kernel debs for one flavour of resolute (flavour selected via task).
+
+grade: stable
+build-base: core26
+confinement: strict
+type: kernel
+version: "1"
+
+parts:
+  kernel:
+    plugin: kernel
+    source: .
+    source-type: local
+    kernel-build-config:
+      build-type: binary-repack
+      ubuntu-kernel-flavour: FLAVOUR_PLACEHOLDER
+      ubuntu-release-name: resolute
