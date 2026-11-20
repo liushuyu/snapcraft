@@ -1,0 +1,35 @@
+summary: Kernel plugin native arm64 binary-repack (manual)
+manual: true
+kill-timeout: 60m
+
+# Needs an arm64 system. None of the backends in spread.yaml provide one, so
+# run this with a custom backend that defines ubuntu-24.04-arm64.
+systems:
+  - ubuntu-24.04-arm64
+
+environment:
+  SNAPCRAFT_BUILD_ENVIRONMENT: host
+  SNAPCRAFT_ENABLE_EXPERIMENTAL_PLUGINS: 1
+
+prepare: |
+  #shellcheck source=tests/spread/tools/kernel-snap.sh
+  . "$TOOLS_DIR/kernel-snap.sh"
+  save_kernel_host_state
+
+execute: |
+  #shellcheck source=tests/spread/tools/kernel-snap.sh
+  . "$TOOLS_DIR/kernel-snap.sh"
+
+  [ "$(dpkg --print-architecture)" = arm64 ]
+
+  snapcraft pack
+  verify_kernel_snap generic
+  verify_kernel_snap_arch arm64 generic
+
+restore: |
+  #shellcheck source=tests/spread/tools/kernel-snap.sh
+  . "$TOOLS_DIR/kernel-snap.sh"
+
+  snapcraft clean
+  rm -rf ./*.snap squashfs-root/
+  restore_kernel_host_state
