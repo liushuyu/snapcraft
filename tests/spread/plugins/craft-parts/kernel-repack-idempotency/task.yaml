@@ -1,4 +1,4 @@
-summary: Kernel plugin binary-repack clean rebuild (manual)
+summary: Kernel plugin binary-repack rebuild without cleaning (manual)
 manual: true
 kill-timeout: 60m
 
@@ -16,20 +16,23 @@ prepare: |
 
 execute: |
   snapcraft pack
-  unsquashfs -d first pc-kernel_*.snap
+  unsquashfs -d parts/first pc-kernel_*.snap
 
   rm -f ./*.snap
-  snapcraft clean kernel
+  # Updating a local source reruns the build step without cleaning the part.
+  touch snapcraft.yaml
+  # The build template must remove generated outputs left by the first run.
+  touch parts/kernel/install/vmlinuz-stale
   snapcraft pack
-  unsquashfs -d second pc-kernel_*.snap
+  unsquashfs -d parts/second pc-kernel_*.snap
 
-  rm -f first/snap/manifest.yaml second/snap/manifest.yaml
-  diff -qr first second
+  rm -f parts/first/snap/manifest.yaml parts/second/snap/manifest.yaml
+  diff -qr parts/first parts/second
 
 restore: |
   #shellcheck source=tests/spread/tools/kernel-snap.sh
   . "$TOOLS_DIR/kernel-snap.sh"
 
+  rm -rf ./*.snap parts/first/ parts/second/
   snapcraft clean
-  rm -rf ./*.snap first/ second/
   restore_kernel_host_state
