@@ -1,0 +1,51 @@
+summary: Kernel plugin binary-repack across flavours (manual)
+manual: true
+kill-timeout: 60m
+
+# One variant per series and flavour. Each repacks archive debs without
+# compiling, but the full set is too large for the PR gate. Run one series
+# with a variant filter, for example:
+#   spread openstack:ubuntu-24.04-64:tests/spread/plugins/craft-parts/kernel-repack-flavours:jammy_...
+systems:
+  - ubuntu-24.04*
+
+environment:
+  SERIES/jammy_generic,jammy_lowlatency,jammy_kvm,jammy_aws,jammy_azure,jammy_azure_fde,jammy_gcp,jammy_gke,jammy_gkeop,jammy_nvidia,jammy_nvidia_lowlatency,jammy_oem,jammy_oracle,jammy_ibm,jammy_intel_iotg: jammy
+  SERIES/noble_generic,noble_lowlatency,noble_aws,noble_azure,noble_gcp,noble_vmware,noble_oem,noble_oracle,noble_ibm: noble
+  SERIES/resolute_generic,resolute_realtime,resolute_aws,resolute_azure,resolute_gcp,resolute_nvidia_bos,resolute_oem,resolute_oracle,resolute_ibm: resolute
+  FLAVOUR/jammy_generic,noble_generic,resolute_generic: generic
+  FLAVOUR/jammy_lowlatency,noble_lowlatency: lowlatency
+  FLAVOUR/jammy_kvm: kvm
+  FLAVOUR/jammy_aws,noble_aws,resolute_aws: aws
+  FLAVOUR/jammy_azure,noble_azure,resolute_azure: azure
+  FLAVOUR/jammy_azure_fde: azure-fde
+  FLAVOUR/jammy_gcp,noble_gcp,resolute_gcp: gcp
+  FLAVOUR/jammy_gke: gke
+  FLAVOUR/jammy_gkeop: gkeop
+  FLAVOUR/jammy_nvidia: nvidia
+  FLAVOUR/jammy_nvidia_lowlatency: nvidia-lowlatency
+  FLAVOUR/jammy_oem,noble_oem,resolute_oem: oem
+  FLAVOUR/jammy_oracle,noble_oracle,resolute_oracle: oracle
+  FLAVOUR/jammy_ibm,noble_ibm,resolute_ibm: ibm
+  FLAVOUR/jammy_intel_iotg: intel-iotg
+  FLAVOUR/noble_vmware: vmware
+  FLAVOUR/resolute_realtime: realtime
+  FLAVOUR/resolute_nvidia_bos: nvidia-bos
+  SNAPCRAFT_BUILD_ENVIRONMENT: ""
+  SNAPCRAFT_ENABLE_EXPERIMENTAL_PLUGINS: 1
+
+prepare: |
+  sed "s/FLAVOUR_PLACEHOLDER/$FLAVOUR/" "$SERIES/snapcraft.yaml" >snapcraft.yaml
+
+execute: |
+  #shellcheck source=tests/spread/tools/kernel-snap.sh
+  . "$TOOLS_DIR/kernel-snap.sh"
+
+  snapcraft pack
+  verify_kernel_snap "$FLAVOUR"
+
+restore: |
+  if [ -e snapcraft.yaml ]; then
+    snapcraft clean
+  fi
+  rm -rf ./*.snap squashfs-root/ snapcraft.yaml
