@@ -1,0 +1,35 @@
+summary: Kernel plugin binary-repack clean rebuild (manual)
+manual: true
+kill-timeout: 60m
+
+systems:
+  - ubuntu-24.04*
+
+environment:
+  SNAPCRAFT_BUILD_ENVIRONMENT: host
+  SNAPCRAFT_ENABLE_EXPERIMENTAL_PLUGINS: 1
+
+prepare: |
+  #shellcheck source=tests/spread/tools/kernel-snap.sh
+  . "$TOOLS_DIR/kernel-snap.sh"
+  save_kernel_host_state
+
+execute: |
+  snapcraft pack
+  unsquashfs -d first pc-kernel_*.snap
+
+  rm -f ./*.snap
+  snapcraft clean kernel
+  snapcraft pack
+  unsquashfs -d second pc-kernel_*.snap
+
+  rm -f first/snap/manifest.yaml second/snap/manifest.yaml
+  diff -qr first second
+
+restore: |
+  #shellcheck source=tests/spread/tools/kernel-snap.sh
+  . "$TOOLS_DIR/kernel-snap.sh"
+
+  snapcraft clean
+  rm -rf ./*.snap first/ second/
+  restore_kernel_host_state

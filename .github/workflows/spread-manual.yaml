@@ -82,6 +82,8 @@ jobs:
           args: >-
             openstack:ubuntu-24.04-64:tests/spread/plugins/craft-parts/kernel-repack-flavours
             openstack:ubuntu-24.04-64:tests/spread/plugins/craft-parts/kernel-repack-arch
+            openstack:ubuntu-24.04-64:tests/spread/plugins/craft-parts/kernel-repack-binary-module
+            openstack:ubuntu-24.04-64:tests/spread/plugins/craft-parts/kernel-repack-idempotency
           junit-name: kernel-plugins-bin-repack
 
   initrd-plugins:
