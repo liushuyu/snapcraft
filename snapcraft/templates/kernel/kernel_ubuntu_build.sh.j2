@@ -26,6 +26,7 @@ rsync -aH {{ craft_part_src_dir }}/ {{ craft_part_build_dir }}/kernel-src
 cd {{ craft_part_build_dir }}/kernel-src
 
 source debian/debian.env
+DEBIAN="${DEBIAN:-debian.master}"
 
 {% if is_cross_compiling %}
     export $(dpkg-architecture -a{{ target_arch }})
@@ -38,10 +39,10 @@ source debian/debian.env
 {% if ubuntu_kernel_tools|length > 0 %}
     echo "Updating kernel tools selection"
     sed -i 's/^\s*do_tools_\(.*\)\s*=.*/do_tools_\1 = false/g' \
-        debian.master/rules.d/{{ target_arch }}.mk
+        "${DEBIAN}"/rules.d/{{ target_arch }}.mk
     {% for tool in ubuntu_kernel_tools %}
         sed -i 's/^\s*do_tools_{{ tool }}\s*=.*/do_tools_{{ tool }} = true/g' \
-            debian.master/rules.d/{{ target_arch }}.mk
+            "${DEBIAN}"/rules.d/{{ target_arch }}.mk
     {% endfor %}
 {% endif %}
 
@@ -50,10 +51,10 @@ source debian/debian.env
     echo "Updating build target image"
     sed -i \
         's/^\s*build_image.*/build_image = {{ config.image_targets|join(' ') }}/g' \
-        debian.master/rules.d/{{ target_arch }}.mk
+        "${DEBIAN}"/rules.d/{{ target_arch }}.mk
     sed -i \
         's|^\s*kernel_file.*|kernel_file = arch/{{ kernel_arch }}/boot/{{ config.image_targets[0] }}|g' \
-        debian.master/rules.d/{{ target_arch }}.mk
+        "${DEBIAN}"/rules.d/{{ target_arch }}.mk
 {% endif %}
 
 {% set has_ubuntu_kernel_config_fragments = config.overrides.override_file or config.overrides.override_options %}
@@ -106,7 +107,9 @@ cd {{ craft_part_build_dir }}/kernel
     echo "${KERNEL_ABI}" > {{ craft_part_state_dir }}/kernel-abi
     echo "${KERNEL_ABI_FLAVOUR}" > {{ craft_part_state_dir }}/kernel-abi-flavour
     # Source builds are not signed yet
-    dpkg-deb -x linux-image-unsigned-*-{{ ubuntu_kernel_flavor }}_*.deb unpacked-linux-image
+    find . -maxdepth 1 -type f \
+        '(' -name 'linux-image-unsigned-*-{{ ubuntu_kernel_flavor }}_*.deb' -or -name 'linux-image-*-{{ ubuntu_kernel_flavor }}_*.deb' ')' \
+        -exec 'dpkg-deb' '-x' '{}' unpacked-linux-image ';'
     PKGS=(linux-modules-*-{{ ubuntu_kernel_flavor }}_*.deb)
 {% endif %}
 
