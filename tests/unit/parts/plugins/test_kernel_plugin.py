@@ -203,10 +203,7 @@ class TestCrossBuildSources:
             "deb http://ppa.example.test/ubuntu jammy main\n"
         )
         (sources_dir / "ports.sources").write_text(
-            "Types: deb\n"
-            "URIs: https://ports.ubuntu.com/ubuntu-ports/\n"
-            "Suites: jammy\n"
-            "Architectures: arm64\n"
+            "Types: deb\nURIs: https://ports.ubuntu.com/ubuntu-ports/\nSuites: jammy\n"
         )
         (sources_dir / "archive.sources").write_text(
             "Types: deb\n"
@@ -228,7 +225,7 @@ class TestCrossBuildSources:
             "https://security.ubuntu.com/ubuntu jammy-security main\n"
             "deb http://ppa.example.test/ubuntu jammy main\n"
         )
-        assert "Architectures: arm64\n" in (sources_dir / "ports.sources").read_text()
+        assert "Architectures: amd64\n" in (sources_dir / "ports.sources").read_text()
         archive_sources = (sources_dir / "archive.sources").read_text()
         assert archive_sources.count("Architectures: amd64") == 2
         _restrict_ubuntu_archive_sources("amd64", apt_dir=apt_dir)
@@ -357,7 +354,9 @@ class TestGeneratedBuildCommands:
             in script
         )
 
-    @pytest.mark.parametrize("build_type", ["binary-repack", "ubuntu-tree"])
+    @pytest.mark.parametrize(
+        "build_type", ["binary-repack", "ubuntu-tree", "generic-tree"]
+    )
     def test_binary_extra_module_is_unpacked_not_built(self, part_info, build_type):
         """An extra module without a source is a prebuilt deb from pull; it
         must be unpacked with the kernel modules, never handed to DKMS.
@@ -375,7 +374,12 @@ class TestGeneratedBuildCommands:
             },
             part_info,
         )
-        assert f"PKGS+=({module}_*.deb)" in script
+        if build_type == "generic-tree":
+            assert "dpkg-deb -x" in script
+            assert f"/{module}_*.deb" in script
+            assert '/modules/"${KERNEL_ABI}"' in script
+        else:
+            assert f"PKGS+=({module}_*.deb)" in script
         assert f"module_build_{module}" not in script
         assert f"dkms/{module}" not in script
         assert "module_build_helloworld" in script
@@ -517,6 +521,32 @@ class TestPullCommands:
         )
         script = plugin.get_pull_commands()[0]
         assert "noble" in script
+
+    def test_binary_extra_module_uses_target_architecture(self, new_dir):
+        part_info = PartInfo(
+            project_info=ProjectInfo(
+                application_name="test",
+                project_name="test-snap",
+                cache_dir=new_dir,
+                base="core24",
+                arch="arm64",
+            ),
+            part=Part("kernel", {}),
+        )
+        module = "linux-modules-iwlwifi-6.8.0-149-generic"
+        plugin = _make_plugin(
+            {
+                "kernel-build-config": {
+                    "build-type": "binary-repack",
+                    "extra-modules": {module: None},
+                }
+            },
+            part_info,
+        )
+
+        commands = plugin.get_pull_commands()
+
+        assert f"apt-get download {module}:arm64" in commands
 
 
 _APT_CACHE_STUB = """#!/bin/bash
