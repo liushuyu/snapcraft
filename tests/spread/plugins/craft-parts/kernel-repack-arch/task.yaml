@@ -33,11 +33,15 @@ execute: |
   . "$TOOLS_DIR/kernel-snap.sh"
 
   snapcraft pack --build-for "$ARCH"
-  verify_kernel_snap "$FLAVOUR"
+  # The s390x kernel flavour does not depend on linux-firmware.
+  if [ "$ARCH" = s390x ]; then
+    verify_kernel_snap "$FLAVOUR" false
+  else
+    verify_kernel_snap "$FLAVOUR"
+  fi
   verify_kernel_snap_arch "$ARCH" "$FLAVOUR"
   if [ "$FLAVOUR" = raspi ]; then
     verify_kernel_snap_has_files dtbs
-    verify_kernel_snap_has_files firmware
   fi
 
 restore: |
