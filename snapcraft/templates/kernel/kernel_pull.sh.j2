@@ -80,6 +80,23 @@ if [ -z "${KERNEL_PACKAGES[*]:-}" ]; then
     echo "No kernel packages found for {{ ubuntu_kernel_flavor }} on {{ target_arch }}/{{ ubuntu_kernel_release_name }}"
     exit 1
 fi
+if printf '%s\n' "${KERNEL_PACKAGES[@]}" | grep -qx linux-firmware; then
+    mapfile -t FIRMWARE_PACKAGES < <(
+        apt-cache depends --no-recommends \
+            "linux-firmware/{{ ubuntu_kernel_release_name }}" \
+            | awk '
+                $1 == "Depends:" {
+                    dependency = $2
+                    unavailable = dependency ~ /^<.*>$/
+                    gsub(/^<|>$/, "", dependency)
+                    if (!unavailable && index(dependency, "linux-firmware-") == 1) {
+                        print dependency
+                    }
+                }
+            '
+    )
+    KERNEL_PACKAGES+=("${FIRMWARE_PACKAGES[@]}")
+fi
 mapfile -t KERNEL_PACKAGES < <(printf '%s\n' "${KERNEL_PACKAGES[@]}" | sort -u)
 for package in "${KERNEL_PACKAGES[@]}"; do
     apt-get download "${package}/{{ ubuntu_kernel_release_name }}"

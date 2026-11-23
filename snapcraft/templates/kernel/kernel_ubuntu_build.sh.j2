@@ -195,5 +195,14 @@ for DTBS in unpacked-linux-modules/{,usr/}lib/firmware/"${KERNEL_ABI}"-"${KERNEL
 done
 rm -rf {{ craft_part_install_dir }}/boot
 
+{% if ubuntu_kernel_use_binary_package %}
+for firmware_dir in unpacked-linux-firmware/{,usr/}lib/firmware; do
+    if [ -d "${firmware_dir}" ]; then
+        mkdir -p {{ craft_part_install_dir }}/firmware
+        cp -a "${firmware_dir}/." {{ craft_part_install_dir }}/firmware/
+    fi
+done
+{% endif %}
+
 {% from 'kernel_macros.sh.j2' import relocate_firmware with context %}
 {{ relocate_firmware() }}

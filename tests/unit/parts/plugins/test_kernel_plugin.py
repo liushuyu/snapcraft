@@ -447,14 +447,23 @@ class TestGeneratedBuildCommands:
         assert "do_tools_perf = true" in script
         assert "do_tools_rtla = true" in script
 
-    def test_dead_unpacked_linux_firmware_removed(self, part_info):
-        """The noble+ deb layout never produces unpacked-linux-firmware."""
+    def test_binary_repack_copies_archive_firmware_before_staged_firmware(
+        self, part_info
+    ):
         script = self._render(
-            {"kernel-build-config": {"build-type": "ubuntu-tree"}}, part_info
+            {"kernel-build-config": {"build-type": "binary-repack"}}, part_info
         )
-        # tracked for the fix; document current (broken) behavior until then
-        # assert "unpacked-linux-firmware" not in script
-        assert script  # placeholder assertion
+        archive_firmware = script.index("unpacked-linux-firmware/{,usr/}lib/firmware")
+        copy_firmware = script.index("cp -a", archive_firmware)
+        relocate_staged_firmware = script.index(
+            "for _fw in usr/lib/firmware lib/firmware"
+        )
+
+        assert archive_firmware < copy_firmware < relocate_staged_firmware
+        assert (
+            f"{part_info.part_install_dir}/firmware/"
+            in script[copy_firmware:relocate_staged_firmware]
+        )
 
     @pytest.mark.parametrize(
         ("arch", "kernel_arch"),
@@ -558,6 +567,8 @@ case "$*" in
     cat "$STUB_DIR/meta-depends" ;;
   "depends --no-recommends linux-image-6.8.0-149-generic/noble")
     cat "$STUB_DIR/image-depends" ;;
+  "depends --no-recommends linux-firmware/noble")
+    cat "$STUB_DIR/firmware-depends" ;;
 esac
 """
 
@@ -574,7 +585,7 @@ class TestPullScriptExecution:
     """Run the rendered binary-repack pull script against stubbed apt tools."""
 
     @pytest.mark.parametrize(
-        ("meta_depends", "expected"),
+        ("meta_depends", "firmware_depends", "expected"),
         [
             pytest.param(
                 [
@@ -584,13 +595,20 @@ class TestPullScriptExecution:
                     "intel-microcode",
                     "amd64-microcode",
                 ],
+                [
+                    "linux-firmware-amd-graphics",
+                    "linux-firmware-intel-graphics",
+                    "<linux-firmware-vendor-unavailable>",
+                ],
                 {
                     "linux-image-6.8.0-149-generic",
                     "linux-modules-6.8.0-149-generic",
                     "linux-modules-extra-6.8.0-149-generic",
                     "linux-firmware",
+                    "linux-firmware-amd-graphics",
+                    "linux-firmware-intel-graphics",
                 },
-                id="noble-modules-extra",
+                id="noble-split-firmware",
             ),
             pytest.param(
                 [
@@ -599,6 +617,7 @@ class TestPullScriptExecution:
                     "linux-main-modules-zfs-6.8.0-149-generic",
                     "linux-firmware",
                 ],
+                [],
                 {
                     "linux-image-6.8.0-149-generic",
                     "linux-modules-6.8.0-149-generic",
@@ -613,6 +632,7 @@ class TestPullScriptExecution:
                     "<linux-modules-extra-6.8.0-149-generic>",
                     "<linux-firmware:amd64>",
                 ],
+                [],
                 {
                     "linux-image-6.8.0-149-generic",
                     "linux-modules-6.8.0-149-generic",
@@ -622,8 +642,8 @@ class TestPullScriptExecution:
             ),
         ],
     )
-    def test_downloads_all_abi_module_packages(
-        self, part_info, tmp_path, meta_depends, expected
+    def test_downloads_kernel_and_firmware_packages(
+        self, part_info, tmp_path, meta_depends, firmware_depends, expected
     ):
         stub_dir = tmp_path / "stubs"
         stub_dir.mkdir()
@@ -641,6 +661,10 @@ class TestPullScriptExecution:
             "linux-image-6.8.0-149-generic\n"
             "  Depends: kmod\n"
             "  Depends: linux-modules-6.8.0-149-generic\n"
+        )
+        (stub_dir / "firmware-depends").write_text(
+            "linux-firmware\n"
+            + "".join(f"  Depends: {package}\n" for package in firmware_depends)
         )
         part_info.part_src_dir.mkdir(parents=True, exist_ok=True)
         part_info.part_state_dir.mkdir(parents=True, exist_ok=True)
