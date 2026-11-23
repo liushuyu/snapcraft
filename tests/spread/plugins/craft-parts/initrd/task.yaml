@@ -16,6 +16,9 @@ restore: |
   rm -rf ./*.snap squashfs-root/
 
 execute: |
+  #shellcheck source=tests/spread/tools/kernel-snap.sh
+  . "$TOOLS_DIR/kernel-snap.sh"
+
   # Unset SNAPCRAFT_BUILD_ENVIRONMENT=host.
   unset SNAPCRAFT_BUILD_ENVIRONMENT
 

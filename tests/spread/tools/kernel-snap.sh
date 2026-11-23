@@ -51,6 +51,7 @@ kernel_image() {
 # needs from a kernel snap of the given flavour.
 verify_kernel_snap() {
   local flavour="$1"
+  local expect_firmware="${2:-true}"
   local -a modules
 
   rm -rf squashfs-root
@@ -68,6 +69,9 @@ verify_kernel_snap() {
   if [ ! -d "${modules[0]}" ]; then
     echo "No kernel modules for flavour $flavour"
     return 1
+  fi
+  if [ "$expect_firmware" = true ]; then
+    verify_kernel_snap_has_files firmware
   fi
 }
 
@@ -110,12 +114,13 @@ describe_kernel() {
   fi
 }
 
-# Check that a directory in the unpacked snap contains at least one file.
+# Check that a directory in an unpacked snap contains at least one file.
 verify_kernel_snap_has_files() {
   local dir="$1"
+  local root="${2:-squashfs-root}"
 
-  if ! find "squashfs-root/$dir" -type f -print -quit | grep -q .; then
-    echo "$dir is missing or empty"
+  if ! find "$root/$dir" -type f -print -quit | grep -q .; then
+    echo "$root/$dir is missing or empty"
     return 1
   fi
 }
