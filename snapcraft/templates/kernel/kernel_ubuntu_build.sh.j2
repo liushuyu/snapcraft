@@ -97,9 +97,8 @@ cd {{ craft_part_build_dir }}/kernel
     KERNEL_ABI="$(cat {{ craft_part_state_dir }}/kernel-abi)"
     KERNEL_ABI_FLAVOUR="$(cat {{ craft_part_state_dir }}/kernel-abi-flavour)"
     dpkg-deb -x linux-image-"${KERNEL_ABI}"-*_*.deb unpacked-linux-image
-    if test -f linux-firmware_*.deb; then
-        dpkg-deb -x linux-firmware_*.deb unpacked-linux-firmware
-    fi
+    find . -name 'linux-firmware*.deb' -maxdepth 1 -type f \
+        -exec dpkg-deb -x '{}' unpacked-linux-firmware ';'
     PKGS=(linux-modules*-"${KERNEL_ABI}"-*_*.deb)
 {% else %}
     KERNEL_ABI="$(dpkg-deb -f linux-modules-*-{{ ubuntu_kernel_flavor }}_*.deb Version | perl -ne '/(\d+\.\d+\.\d+).(\d+).*/ && print "$1-$2\n"')"
