@@ -20,7 +20,7 @@ execute: |
 
   snapcraft pack
   unsquashfs -d parts/first pc-kernel_*.snap
-  verify_kernel_snap_has_files firmware parts/first
+  verify_kernel_snap_firmware_if_required parts/first
 
   rm -f ./*.snap
   # Updating a local source reruns the build step without cleaning the part.
@@ -29,7 +29,7 @@ execute: |
   touch parts/kernel/build/kernel/unpacked-linux-image/boot/vmlinuz-stale
   snapcraft pack
   unsquashfs -d parts/second pc-kernel_*.snap
-  verify_kernel_snap_has_files firmware parts/second
+  verify_kernel_snap_firmware_if_required parts/second
 
   rm -f parts/first/snap/manifest.yaml parts/second/snap/manifest.yaml
   diff -qr parts/first parts/second

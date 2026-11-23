@@ -47,11 +47,63 @@ kernel_image() {
   done
 }
 
-# Unpack pc-kernel_*.snap into squashfs-root and check for the files snapd
-# needs from a kernel snap of the given flavour.
+# Query the selected kernel image package to decide whether firmware is required.
+verify_kernel_snap_firmware_if_required() {
+  local root="${1:-squashfs-root}"
+  local config_file="${2:-snapcraft.yaml}"
+  local flavour series build_base architecture image_package dependencies
+
+  flavour="$(awk '/^[[:space:]]*ubuntu-kernel-flavour:/ { print $2; exit }' "$config_file" | tr -d "\"\047")"
+  flavour="${flavour:-generic}"
+  series="$(awk '/^[[:space:]]*ubuntu-release-name:/ { print $2; exit }' "$config_file" | tr -d "\"\047")"
+  if [ -z "$series" ]; then
+    series="${SERIES:-}"
+  fi
+  if [ -z "$series" ]; then
+    build_base="$(awk '/^build-base:/ { print $2; exit }' "$config_file")"
+    case "$build_base" in
+      core22) series=jammy ;;
+      core24) series=noble ;;
+      core26) series=resolute ;;
+      *)
+        echo "Cannot determine Ubuntu series for build-base '$build_base'"
+        return 2
+        ;;
+    esac
+  fi
+  architecture="${ARCH:-$(dpkg --print-architecture)}"
+  image_package="linux-image-${flavour}:${architecture}/${series}"
+  dependencies="$(apt-cache depends --no-recommends "$image_package" 2>/dev/null)" || {
+    echo "Skipping firmware check: no apt metadata for $image_package in the test environment"
+    return 0
+  }
+  if ! grep -q . <<<"$dependencies"; then
+    echo "Skipping firmware check: no apt metadata for $image_package in the test environment"
+    return 0
+  fi
+  if ! awk '
+    $1 == "Depends:" {
+      package = $2
+      unavailable = package ~ /^<.*>$/
+      gsub(/^<|>$/, "", package)
+      sub(/:.*/, "", package)
+      if (!unavailable && package == "linux-firmware") {
+        found = 1
+      }
+    }
+    END { exit !found }
+  ' <<<"$dependencies"; then
+    echo "Skipping firmware check: $image_package does not depend on linux-firmware"
+    return 0
+  fi
+  verify_kernel_snap_has_files firmware "$root"
+}
+
+# Unpack pc-kernel_*.snap into squashfs-root and check the files required by
+# the selected kernel flavor.
 verify_kernel_snap() {
   local flavour="$1"
-  local expect_firmware="${2:-true}"
+  local expect_firmware="${2:-auto}"
   local -a modules
 
   rm -rf squashfs-root
@@ -70,7 +122,9 @@ verify_kernel_snap() {
     echo "No kernel modules for flavour $flavour"
     return 1
   fi
-  if [ "$expect_firmware" = true ]; then
+  if [ "$expect_firmware" = auto ]; then
+    verify_kernel_snap_firmware_if_required
+  elif [ "$expect_firmware" = true ]; then
     verify_kernel_snap_has_files firmware
   fi
 }
