@@ -16,6 +16,8 @@
 
 """Tests for the rewritten kernel plugin (snapcraft.parts.plugins.kernel_plugin)."""
 
+import subprocess
+
 import pytest
 from craft_parts import Part, PartInfo, ProjectInfo
 from pydantic import ValidationError
@@ -444,14 +446,23 @@ class TestGeneratedBuildCommands:
         assert "do_tools_perf = true" in script
         assert "do_tools_rtla = true" in script
 
-    def test_dead_unpacked_linux_firmware_removed(self, part_info):
-        """The noble+ deb layout never produces unpacked-linux-firmware."""
+    def test_binary_repack_copies_archive_firmware_before_staged_firmware(
+        self, part_info
+    ):
         script = self._render(
-            {"kernel-build-config": {"build-type": "ubuntu-tree"}}, part_info
+            {"kernel-build-config": {"build-type": "binary-repack"}}, part_info
         )
-        # tracked for the fix; document current (broken) behavior until then
-        # assert "unpacked-linux-firmware" not in script
-        assert script  # placeholder assertion
+        archive_firmware = script.index("unpacked-linux-firmware/{,usr/}lib/firmware")
+        copy_firmware = script.index("cp -a", archive_firmware)
+        relocate_staged_firmware = script.index(
+            "for _fw in usr/lib/firmware lib/firmware"
+        )
+
+        assert archive_firmware < copy_firmware < relocate_staged_firmware
+        assert (
+            f"{part_info.part_install_dir}/firmware/"
+            in script[copy_firmware:relocate_staged_firmware]
+        )
 
     @pytest.mark.parametrize(
         ("arch", "kernel_arch"),
