@@ -10,7 +10,7 @@ systems:
   - ubuntu-24.04*
 
 environment:
-  SERIES/jammy_generic,jammy_lowlatency,jammy_kvm,jammy_aws,jammy_azure,jammy_azure_fde,jammy_gcp,jammy_gke,jammy_gkeop,jammy_nvidia,jammy_nvidia_lowlatency,jammy_oem,jammy_oracle,jammy_ibm,jammy_intel_iotg: jammy
+  SERIES/jammy_generic,jammy_lowlatency,jammy_kvm,jammy_aws,jammy_azure,jammy_azure_fde,jammy_gcp,jammy_gke,jammy_gkeop,jammy_nvidia,jammy_nvidia_lowlatency,jammy_hwe,jammy_oem,jammy_oracle,jammy_ibm,jammy_intel_iotg: jammy
   SERIES/noble_generic,noble_lowlatency,noble_aws,noble_azure,noble_gcp,noble_vmware,noble_oem,noble_oracle,noble_ibm: noble
   SERIES/resolute_generic,resolute_realtime,resolute_aws,resolute_azure,resolute_gcp,resolute_nvidia_bos,resolute_oem,resolute_oracle,resolute_ibm: resolute
   FLAVOUR/jammy_generic,noble_generic,resolute_generic: generic
@@ -24,6 +24,9 @@ environment:
   FLAVOUR/jammy_gkeop: gkeop
   FLAVOUR/jammy_nvidia: nvidia
   FLAVOUR/jammy_nvidia_lowlatency: nvidia-lowlatency
+  FLAVOUR/jammy_hwe: generic-hwe-22.04
+  IMAGE_FLAVOUR/jammy_hwe: generic
+  EXPECTED_KERNEL_VERSION/jammy_hwe: 6.8
   FLAVOUR/jammy_oem: oem-22.04
   FLAVOUR/noble_oem: oem-24.04
   FLAVOUR/resolute_oem: oem-26.04
@@ -43,8 +46,17 @@ execute: |
   #shellcheck source=tests/spread/tools/kernel-snap.sh
   . "$TOOLS_DIR/kernel-snap.sh"
 
+  image_flavour="${IMAGE_FLAVOUR:-$FLAVOUR}"
   snapcraft pack
-  verify_kernel_snap "$FLAVOUR"
+  verify_kernel_snap "$image_flavour"
+
+  if [ -n "${EXPECTED_KERNEL_VERSION:-}" ]; then
+    image="$(kernel_image "$image_flavour")"
+    if [[ "$(basename "$image")" != vmlinuz-"${EXPECTED_KERNEL_VERSION}".*-"${image_flavour}" ]]; then
+      echo "Expected kernel version ${EXPECTED_KERNEL_VERSION}, got $(basename "$image")"
+      exit 1
+    fi
+  fi
 
 restore: |
   if [ -e snapcraft.yaml ]; then
