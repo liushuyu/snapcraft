@@ -24,7 +24,11 @@ environment:
   FLAVOUR/jammy_gkeop: gkeop
   FLAVOUR/jammy_nvidia: nvidia
   FLAVOUR/jammy_nvidia_lowlatency: nvidia-lowlatency
-  FLAVOUR/jammy_oem,noble_oem,resolute_oem: oem
+  FLAVOUR/jammy_oem: oem-22.04
+  FLAVOUR/noble_oem: oem-24.04
+  FLAVOUR/resolute_oem: oem-26.04
+  IMAGE_FLAVOUR/jammy_oem,noble_oem: generic
+  IMAGE_FLAVOUR/resolute_oem: oem
   FLAVOUR/jammy_oracle,noble_oracle,resolute_oracle: oracle
   FLAVOUR/jammy_ibm,noble_ibm,resolute_ibm: ibm
   FLAVOUR/jammy_intel_iotg: intel-iotg
