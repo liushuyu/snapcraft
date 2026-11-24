@@ -1,0 +1,25 @@
+name: pc-kernel
+summary: Kernel plugin DKMS extra modules
+description: Binary-repack with DKMS and prebuilt extra modules.
+grade: stable
+build-base: core24
+confinement: strict
+type: kernel
+version: "1"
+
+parts:
+  kernel:
+    plugin: kernel
+    source: .
+    source-type: local
+    kernel-build-config:
+      build-type: binary-repack
+      ubuntu-kernel-flavour: generic
+      ubuntu-release-name: noble
+      extra-modules:
+        matrix-dkms:
+          source: src-dkms
+          source-type: local
+        matrix-plain:
+          source: src-plain
+          source-type: local

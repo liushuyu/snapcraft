@@ -1,0 +1,46 @@
+summary: Kernel plugin Jammy cross-architecture binary-repack (manual)
+manual: true
+kill-timeout: 60m
+
+# Jammy uses one-line apt sources rather than deb822, so these cells exercise
+# cross-repacks against a different source layout from the Noble sweep.
+systems:
+  - ubuntu-22.04*
+
+environment:
+  ARCH/armhf_generic: armhf
+  ARCH/arm64_nvidia_tegra_igx,arm64_nvidia_tegra_igx_rt: arm64
+  FLAVOUR/armhf_generic: generic
+  FLAVOUR/arm64_nvidia_tegra_igx: nvidia-tegra-igx
+  FLAVOUR/arm64_nvidia_tegra_igx_rt: nvidia-tegra-igx-rt
+  SNAPCRAFT_BUILD_ENVIRONMENT: host
+  SNAPCRAFT_ENABLE_EXPERIMENTAL_PLUGINS: 1
+
+prepare: |
+  #shellcheck source=tests/spread/tools/kernel-snap.sh
+  . "$TOOLS_DIR/kernel-snap.sh"
+  save_kernel_host_state
+
+  sed -e "s/ARCH_PLACEHOLDER/$ARCH/" -e "s/FLAVOUR_PLACEHOLDER/$FLAVOUR/" \
+    snapcraft.yaml.in >snapcraft.yaml
+
+execute: |
+  #shellcheck source=tests/spread/tools/kernel-snap.sh
+  . "$TOOLS_DIR/kernel-snap.sh"
+
+  snapcraft pack --build-for "$ARCH"
+  verify_kernel_snap "$FLAVOUR"
+  verify_kernel_snap_arch "$ARCH" "$FLAVOUR"
+  if [ "$ARCH" = arm64 ]; then
+    verify_kernel_snap_has_files dtbs
+  fi
+
+restore: |
+  #shellcheck source=tests/spread/tools/kernel-snap.sh
+  . "$TOOLS_DIR/kernel-snap.sh"
+
+  if [ -e snapcraft.yaml ]; then
+    snapcraft clean
+  fi
+  rm -rf ./*.snap squashfs-root/ snapcraft.yaml
+  restore_kernel_host_state
