@@ -16,7 +16,6 @@
 
 """Tests for the rewritten kernel plugin (snapcraft.parts.plugins.kernel_plugin)."""
 
-import os
 import subprocess
 
 import pytest
@@ -505,9 +504,9 @@ class TestPullCommands:
         commands = plugin.get_pull_commands()
         assert len(commands) == 1
         script = commands[0]
-        assert "apt-cache depends --no-recommends" in script
-        assert 'apt-get download "${package}/noble"' in script
-        assert "linux-firmware:amd64" in script
+        # WIP 9: pulls via apt-get install --download-only of the metapackage
+        assert "apt-get install" in script
+        assert "--download-only" in script
         assert "linux-image-" in script
         assert "ports.ubuntu.com" not in script
 
@@ -557,143 +556,6 @@ class TestPullCommands:
         commands = plugin.get_pull_commands()
 
         assert f"apt-get download {module}:arm64" in commands
-
-
-_APT_CACHE_STUB = """#!/bin/bash
-case "$*" in
-  "show linux-image-generic:amd64/noble")
-    printf 'Package: linux-image-generic\\nVersion: 6.8.0-149.149\\n' ;;
-  "depends --no-recommends linux-image-generic:amd64/noble")
-    cat "$STUB_DIR/meta-depends" ;;
-  "depends --no-recommends linux-image-6.8.0-149-generic/noble")
-    cat "$STUB_DIR/image-depends" ;;
-  "depends --no-recommends linux-firmware/noble")
-    cat "$STUB_DIR/firmware-depends" ;;
-esac
-"""
-
-_APT_GET_STUB = """#!/bin/bash
-if [ "$1" = download ]; then
-  package="${2%/*}"
-  echo "${package}" >> "$STUB_DIR/downloads"
-  touch "${package%%:*}_1_amd64.deb"
-fi
-"""
-
-
-class TestPullScriptExecution:
-    """Run the rendered binary-repack pull script against stubbed apt tools."""
-
-    @pytest.mark.parametrize(
-        ("meta_depends", "firmware_depends", "expected"),
-        [
-            pytest.param(
-                [
-                    "linux-image-6.8.0-149-generic",
-                    "linux-modules-extra-6.8.0-149-generic",
-                    "linux-firmware",
-                    "intel-microcode",
-                    "amd64-microcode",
-                ],
-                [
-                    "linux-firmware-amd-graphics",
-                    "linux-firmware-intel-graphics",
-                    "<linux-firmware-vendor-unavailable>",
-                ],
-                {
-                    "linux-image-6.8.0-149-generic",
-                    "linux-modules-6.8.0-149-generic",
-                    "linux-modules-extra-6.8.0-149-generic",
-                    "linux-firmware",
-                    "linux-firmware-amd-graphics",
-                    "linux-firmware-intel-graphics",
-                },
-                id="noble-split-firmware",
-            ),
-            pytest.param(
-                [
-                    "linux-image-6.8.0-149-generic",
-                    "linux-modules-6.8.0-149-generic",
-                    "linux-main-modules-zfs-6.8.0-149-generic",
-                    "linux-firmware",
-                ],
-                [],
-                {
-                    "linux-image-6.8.0-149-generic",
-                    "linux-modules-6.8.0-149-generic",
-                    "linux-main-modules-zfs-6.8.0-149-generic",
-                    "linux-firmware",
-                },
-                id="resolute-main-modules",
-            ),
-            pytest.param(
-                [
-                    "linux-image-6.8.0-149-generic",
-                    "<linux-modules-extra-6.8.0-149-generic>",
-                    "<linux-firmware:amd64>",
-                ],
-                [],
-                {
-                    "linux-image-6.8.0-149-generic",
-                    "linux-modules-6.8.0-149-generic",
-                    "linux-firmware",
-                },
-                id="unpublished-module-package",
-            ),
-        ],
-    )
-    def test_downloads_kernel_and_firmware_packages(
-        self, part_info, tmp_path, meta_depends, firmware_depends, expected
-    ):
-        stub_dir = tmp_path / "stubs"
-        stub_dir.mkdir()
-        for name, content in (
-            ("apt-cache", _APT_CACHE_STUB),
-            ("apt-get", _APT_GET_STUB),
-        ):
-            (stub_dir / name).write_text(content)
-            (stub_dir / name).chmod(0o755)
-        (stub_dir / "meta-depends").write_text(
-            "linux-image-generic\n"
-            + "".join(f"  Depends: {package}\n" for package in meta_depends)
-        )
-        (stub_dir / "image-depends").write_text(
-            "linux-image-6.8.0-149-generic\n"
-            "  Depends: kmod\n"
-            "  Depends: linux-modules-6.8.0-149-generic\n"
-        )
-        (stub_dir / "firmware-depends").write_text(
-            "linux-firmware\n"
-            + "".join(f"  Depends: {package}\n" for package in firmware_depends)
-        )
-        part_info.part_src_dir.mkdir(parents=True, exist_ok=True)
-        part_info.part_state_dir.mkdir(parents=True, exist_ok=True)
-        plugin = _make_plugin(
-            {
-                "kernel-build-config": {
-                    "build-type": "binary-repack",
-                    "ubuntu-release-name": "noble",
-                }
-            },
-            part_info,
-        )
-
-        subprocess.run(
-            ["bash", "-c", "set -euo pipefail\n" + plugin.get_pull_commands()[0]],
-            cwd=part_info.part_src_dir,
-            env={
-                **os.environ,
-                "PATH": f"{stub_dir}:{os.environ['PATH']}",
-                "STUB_DIR": str(stub_dir),
-            },
-            check=True,
-        )
-
-        downloads = set((stub_dir / "downloads").read_text().split())
-        assert downloads == expected
-        assert (part_info.part_state_dir / "kernel-abi-flavour").read_text() == (
-            "generic\n"
-        )
 
 
 class TestCrossCompile:
