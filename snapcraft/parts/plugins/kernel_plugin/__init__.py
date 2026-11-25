@@ -79,89 +79,6 @@ KERNEL_TOOLS_BUILD_DEPS = {
     },
     "hyperv": set(),
 }
-UBUNTU_ARCHIVE_HOSTS = {
-    "archive.ubuntu.com",
-    "ports.ubuntu.com",
-    "security.ubuntu.com",
-}
-
-
-def _is_ubuntu_archive_url(url: str) -> bool:
-    hostname = urlparse(url).hostname
-    return hostname in UBUNTU_ARCHIVE_HOSTS or (
-        hostname is not None and hostname.endswith(".archive.ubuntu.com")
-    )
-
-
-def _restrict_legacy_source(source: str, architecture: str) -> str:
-    match = re.match(
-        r"(?P<prefix>\s*deb(?:-src)?\s+)"
-        r"(?P<options>\[[^]]*]\s+)?"
-        r"(?P<url>\S+)"
-        r"(?P<suffix>.*)",
-        source,
-    )
-    if not match or not _is_ubuntu_archive_url(match["url"]):
-        return source
-
-    options = match["options"]
-    if options:
-        option_value = options.strip()[1:-1]
-        if re.search(r"(?:^|\s)arch(?:[+=-])?=", option_value):
-            return source
-        options = f"[{option_value} arch={architecture}] "
-    else:
-        options = f"[arch={architecture}] "
-
-    return f"{match['prefix']}{options}{match['url']}{match['suffix']}"
-
-
-def _restrict_deb822_source(source: str, architecture: str) -> str:
-    if not any(
-        _is_ubuntu_archive_url(word)
-        for word in source.split()
-        if word.startswith(("http://", "https://"))
-    ):
-        return source
-    if re.search(r"(?im)^Architectures\s*:", source):
-        return source
-
-    trailing_newline = "\n" if source.endswith("\n") else ""
-    source = source.removesuffix("\n")
-    return f"{source}\nArchitectures: {architecture}{trailing_newline}"
-
-
-def _restrict_ubuntu_archive_sources(
-    architecture: str, *, apt_dir: Path = Path("/etc/apt")
-) -> None:
-    source_paths = [
-        apt_dir / "sources.list",
-        *apt_dir.joinpath("sources.list.d").glob("*.list"),
-        *apt_dir.joinpath("sources.list.d").glob("*.sources"),
-    ]
-    for source_path in source_paths:
-        if not source_path.is_file():
-            continue
-        original = source_path.read_text()
-        if source_path.suffix == ".sources":
-            stanzas = original.split("\n\n")
-            changed = "\n\n".join(
-                _restrict_deb822_source(stanza, architecture) for stanza in stanzas
-            )
-        else:
-            changed = "".join(
-                f"{_restrict_legacy_source(line, architecture)}\n"
-                for line in original.splitlines()
-            )
-            if original and not original.endswith("\n"):
-                changed = changed.removesuffix("\n")
-        if changed != original:
-            logger.info(
-                "Restricting Ubuntu archive source %s to architecture %s",
-                source_path,
-                architecture,
-            )
-            source_path.write_text(changed)
 
 
 class SubPart:
@@ -208,16 +125,13 @@ class KernelPlugin(plugins.Plugin):
             # If not running inside the build container, we need to skip this part
             return
 
-        _restrict_ubuntu_archive_sources(self._part_info.host_arch)
-        subprocess.check_call(["dpkg", "--add-architecture", target_arch])
-
         repo.install(
             [
                 {
                     "url": "https://archive.ubuntu.com/ubuntu/"
                     if target_arch in {"amd64", "i386"}
                     else "https://ports.ubuntu.com/ubuntu-ports/",
-                    "suites": [f"{series}", f"{series}-security", f"{series}-updates"],
+                    "suites": [series, f"{series}-security", f"{series}-updates"],
                     "components": ["main", "universe", "restricted", "multiverse"],
                     "formats": ["deb"],
                     "architectures": [target_arch],
