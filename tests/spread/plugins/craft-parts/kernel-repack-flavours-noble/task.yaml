@@ -1,0 +1,59 @@
+summary: Kernel plugin binary-repack across Noble flavours (manual)
+manual: true
+kill-timeout: 60m
+
+systems:
+  - ubuntu-24.04*
+
+variants:
+  - noble_generic
+  - noble_lowlatency
+  - noble_aws
+  - noble_azure
+  - noble_gcp
+  - noble_vmware
+  - noble_oem
+  - noble_oracle
+  - noble_ibm
+
+environment:
+  SERIES: noble
+  FLAVOUR/noble_generic: generic
+  FLAVOUR/noble_lowlatency: lowlatency
+  FLAVOUR/noble_aws: aws
+  FLAVOUR/noble_azure: azure
+  FLAVOUR/noble_gcp: gcp
+  FLAVOUR/noble_vmware: vmware
+  FLAVOUR/noble_oem: oem-24.04
+  IMAGE_FLAVOUR/noble_oem: generic
+  FLAVOUR/noble_oracle: oracle
+  FLAVOUR/noble_ibm: ibm
+  # These kernels don't depend on firmware, so skip the firmware check.
+  CHECK_FIRMWARE/noble_aws,noble_azure,noble_gcp,noble_vmware,noble_oem,noble_oracle,noble_ibm: false
+  SNAPCRAFT_BUILD_ENVIRONMENT: host
+  SNAPCRAFT_ENABLE_EXPERIMENTAL_PLUGINS: 1
+
+prepare: |
+  #shellcheck source=tests/spread/tools/kernel-snap.sh
+  . "$TOOLS_DIR/kernel-snap.sh"
+  save_kernel_host_state
+
+  sed "s/FLAVOUR_PLACEHOLDER/$FLAVOUR/" snapcraft.yaml.in >snapcraft.yaml
+
+execute: |
+  #shellcheck source=tests/spread/tools/kernel-snap.sh
+  . "$TOOLS_DIR/kernel-snap.sh"
+
+  image_flavour="${IMAGE_FLAVOUR:-$FLAVOUR}"
+  snapcraft pack
+  verify_kernel_snap "$image_flavour" "${CHECK_FIRMWARE:-true}"
+
+restore: |
+  #shellcheck source=tests/spread/tools/kernel-snap.sh
+  . "$TOOLS_DIR/kernel-snap.sh"
+
+  if [ -e snapcraft.yaml ]; then
+    snapcraft clean
+  fi
+  rm -rf ./*.snap squashfs-root/ snapcraft.yaml
+  restore_kernel_host_state

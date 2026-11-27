@@ -1,0 +1,83 @@
+summary: Kernel plugin binary-repack across Jammy flavours (manual)
+manual: true
+kill-timeout: 60m
+
+systems:
+  - ubuntu-22.04*
+
+variants:
+  - jammy_generic
+  - jammy_lowlatency
+  - jammy_kvm
+  - jammy_aws
+  - jammy_azure
+  - jammy_azure_fde
+  - jammy_gcp
+  - jammy_gke
+  - jammy_gkeop
+  - jammy_nvidia
+  - jammy_nvidia_lowlatency
+  - jammy_hwe
+  - jammy_oem
+  - jammy_oracle
+  - jammy_ibm
+  - jammy_intel_iotg
+
+environment:
+  SERIES: jammy
+  FLAVOUR/jammy_generic: generic
+  FLAVOUR/jammy_lowlatency: lowlatency
+  FLAVOUR/jammy_kvm: kvm
+  FLAVOUR/jammy_aws: aws
+  FLAVOUR/jammy_azure: azure
+  FLAVOUR/jammy_azure_fde: azure-fde
+  FLAVOUR/jammy_gcp: gcp
+  FLAVOUR/jammy_gke: gke
+  FLAVOUR/jammy_gkeop: gkeop
+  FLAVOUR/jammy_nvidia: nvidia
+  FLAVOUR/jammy_nvidia_lowlatency: nvidia-lowlatency
+  FLAVOUR/jammy_hwe: generic-hwe-22.04
+  IMAGE_FLAVOUR/jammy_hwe: generic
+  EXPECTED_KERNEL_VERSION/jammy_hwe: 6.8
+  FLAVOUR/jammy_oem: oem-22.04
+  IMAGE_FLAVOUR/jammy_oem: generic
+  FLAVOUR/jammy_oracle: oracle
+  FLAVOUR/jammy_ibm: ibm
+  FLAVOUR/jammy_intel_iotg: intel-iotg
+  # These kernels don't depend on firmware, so skip the firmware check.
+  CHECK_FIRMWARE/jammy_aws,jammy_kvm,jammy_azure,jammy_azure_fde,jammy_gcp,jammy_gke,jammy_oem,jammy_oracle,jammy_ibm: false
+  SNAPCRAFT_BUILD_ENVIRONMENT: host
+  SNAPCRAFT_ENABLE_EXPERIMENTAL_PLUGINS: 1
+
+prepare: |
+  #shellcheck source=tests/spread/tools/kernel-snap.sh
+  . "$TOOLS_DIR/kernel-snap.sh"
+  save_kernel_host_state
+
+  sed "s/FLAVOUR_PLACEHOLDER/$FLAVOUR/" snapcraft.yaml.in >snapcraft.yaml
+
+execute: |
+  #shellcheck source=tests/spread/tools/kernel-snap.sh
+  . "$TOOLS_DIR/kernel-snap.sh"
+
+  image_flavour="${IMAGE_FLAVOUR:-$FLAVOUR}"
+  snapcraft pack
+  verify_kernel_snap "$image_flavour" "${CHECK_FIRMWARE:-true}"
+
+  if [ -n "${EXPECTED_KERNEL_VERSION:-}" ]; then
+    image="$(kernel_image "$image_flavour")"
+    if [[ "$(basename "$image")" != vmlinuz-"${EXPECTED_KERNEL_VERSION}".*-"${image_flavour}" ]]; then
+      echo "Expected kernel version ${EXPECTED_KERNEL_VERSION}, got $(basename "$image")"
+      exit 1
+    fi
+  fi
+
+restore: |
+  #shellcheck source=tests/spread/tools/kernel-snap.sh
+  . "$TOOLS_DIR/kernel-snap.sh"
+
+  if [ -e snapcraft.yaml ]; then
+    snapcraft clean
+  fi
+  rm -rf ./*.snap squashfs-root/ snapcraft.yaml
+  restore_kernel_host_state

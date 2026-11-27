@@ -1,0 +1,59 @@
+summary: Kernel plugin binary-repack across Resolute flavours (manual)
+manual: true
+kill-timeout: 60m
+
+systems:
+  - ubuntu-26.04*
+
+variants:
+  - resolute_generic
+  - resolute_realtime
+  - resolute_aws
+  - resolute_azure
+  - resolute_gcp
+  - resolute_nvidia_bos
+  - resolute_oem
+  - resolute_oracle
+  - resolute_ibm
+
+environment:
+  SERIES: resolute
+  FLAVOUR/resolute_generic: generic
+  FLAVOUR/resolute_realtime: realtime
+  FLAVOUR/resolute_aws: aws
+  FLAVOUR/resolute_azure: azure
+  FLAVOUR/resolute_gcp: gcp
+  FLAVOUR/resolute_nvidia_bos: nvidia-bos
+  FLAVOUR/resolute_oem: oem-26.04
+  IMAGE_FLAVOUR/resolute_oem: oem
+  FLAVOUR/resolute_oracle: oracle
+  FLAVOUR/resolute_ibm: ibm
+  # These kernels don't depend on firmware, so skip the firmware check.
+  CHECK_FIRMWARE/resolute_aws,resolute_azure,resolute_gcp,resolute_oracle,resolute_ibm: false
+  SNAPCRAFT_BUILD_ENVIRONMENT: host
+  SNAPCRAFT_ENABLE_EXPERIMENTAL_PLUGINS: 1
+
+prepare: |
+  #shellcheck source=tests/spread/tools/kernel-snap.sh
+  . "$TOOLS_DIR/kernel-snap.sh"
+  save_kernel_host_state
+
+  sed "s/FLAVOUR_PLACEHOLDER/$FLAVOUR/" snapcraft.yaml.in >snapcraft.yaml
+
+execute: |
+  #shellcheck source=tests/spread/tools/kernel-snap.sh
+  . "$TOOLS_DIR/kernel-snap.sh"
+
+  image_flavour="${IMAGE_FLAVOUR:-$FLAVOUR}"
+  snapcraft pack
+  verify_kernel_snap "$image_flavour" "${CHECK_FIRMWARE:-true}"
+
+restore: |
+  #shellcheck source=tests/spread/tools/kernel-snap.sh
+  . "$TOOLS_DIR/kernel-snap.sh"
+
+  if [ -e snapcraft.yaml ]; then
+    snapcraft clean
+  fi
+  rm -rf ./*.snap squashfs-root/ snapcraft.yaml
+  restore_kernel_host_state
