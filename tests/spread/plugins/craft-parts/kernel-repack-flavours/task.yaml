@@ -38,6 +38,8 @@ environment:
   FLAVOUR/noble_vmware: vmware
   FLAVOUR/resolute_realtime: realtime
   FLAVOUR/resolute_nvidia_bos: nvidia-bos
+  # These kernels don't depend on firmware, so skip the firmware check
+  CHECK_FIRMWARE/jammy_aws,jammy_kvm,jammy_azure,jammy_azure_fde,jammy_gcp,jammy_gke,jammy_oem,jammy_oracle,jammy_ibm,noble_aws,noble_azure,noble_gcp,noble_vmware,noble_oem,noble_oracle,noble_ibm,resolute_aws,resolute_azure,resolute_gcp,resolute_oracle,resolute_ibm: false
   SNAPCRAFT_BUILD_ENVIRONMENT: ""
   SNAPCRAFT_ENABLE_EXPERIMENTAL_PLUGINS: 1
 
@@ -50,7 +52,7 @@ execute: |
 
   image_flavour="${IMAGE_FLAVOUR:-$FLAVOUR}"
   snapcraft pack
-  verify_kernel_snap "$image_flavour"
+  verify_kernel_snap "$image_flavour" "${CHECK_FIRMWARE:-true}"
 
   if [ -n "${EXPECTED_KERNEL_VERSION:-}" ]; then
     image="$(kernel_image "$image_flavour")"
